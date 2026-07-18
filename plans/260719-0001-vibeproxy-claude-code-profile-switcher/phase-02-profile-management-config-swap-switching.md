@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Profile Management & Config-Swap Switching"
-status: pending
+status: completed
 priority: P1
 effort: "4-5d"
 dependencies: [0, 1]
@@ -30,11 +30,18 @@ the *literal* `CLAUDE_CONFIG_DIR` string to key its Keychain item, so a fixed sy
 profiles onto one item. Brokering targets each profile's **real, stable path**
 `~/.vibeproxy/profiles/<id>`:
 
-- **(Primary) Real-path indirection file.** Install a one-line shell snippet:
-  `export CLAUDE_CONFIG_DIR="$(cat ~/.vibeproxy/active-path 2>/dev/null || echo "$HOME/.claude")"`.
+- **(Primary) Real-path indirection file.** Install a one-line shell snippet that **sets or UNSETS**
+  `CLAUDE_CONFIG_DIR` (the default `~/.claude` account only works with the var *unset* — see below):
+  `_vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR`.
   Switching = atomically write the active profile's **real path** into `~/.vibeproxy/active-path`
-  (temp + rename). New shells resolve to that real path → correct per-profile Keychain item. Running
-  sessions unaffected (documented caveat).
+  (temp + rename), or **empty it for the default account**. New shells resolve to the right account.
+  Running sessions unaffected (documented caveat).
+
+> **Default-account rule (verified in implementation).** Setting `CLAUDE_CONFIG_DIR=~/.claude`
+> explicitly makes Claude hash the path and look for a service that doesn't exist → "not logged in".
+> The default account's (bare) Keychain item is only read when the var is **unset**. So the default
+> profile is activated by *clearing* active-path, and its identity/token are read with the var unset.
+> `paths::is_default()` centralizes this; `keychain`, `account_meta`, and `activate` all honor it.
 - **(Companion) Launch broker.** VibeProxy spawns `claude` / opens Terminal with
   `CLAUDE_CONFIG_DIR=<real profile path>` — immediate for VibeProxy-started sessions; powers the Phase 5
   "relaunch" action; reused in Phase 3 onboarding.

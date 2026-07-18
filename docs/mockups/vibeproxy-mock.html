@@ -301,7 +301,7 @@
 
         <div class="win-h">Claude Code integration</div>
         <div style="font-size:12.5px;color:var(--ink-soft)">Add this to your shell profile so new terminals use the active account:</div>
-        <div class="snippet">export CLAUDE_CONFIG_DIR="$(cat ~/.vibeproxy/active-path 2&gt;/dev/null || echo ~/.claude)"</div>
+        <div class="snippet">_vp="$(cat ~/.vibeproxy/active-path 2&gt;/dev/null)"; [ -n "$_vp" ] &amp;&amp; export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR</div>
 
         <div class="win-h">Activity</div>
         <ul class="log">

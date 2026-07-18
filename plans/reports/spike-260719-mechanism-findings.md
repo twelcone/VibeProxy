@@ -49,10 +49,16 @@ resolved realpath (`e30f4f07`). Therefore:
 - ✅ **Corrected design:** each profile is a fixed real dir `~/.vibeproxy/profiles/<id>`; its Keychain
   item is stable (`Claude Code-credentials-<sha256(realpath)[:8]>`). "Active" is brokered by the
   **real path**, two ways:
-  1. **Shell indirection (real path, not symlink):** shell rc does
-     `export CLAUDE_CONFIG_DIR="$(cat ~/.vibeproxy/active-path 2>/dev/null || echo "$HOME/.claude")"`.
-     VibeProxy writes the active profile's **real path** into `~/.vibeproxy/active-path`. New shells
-     resolve to the real path → correct hash. (Still next-launch only.)
+  1. **Shell indirection (real path, not symlink):** shell rc **sets or unsets** the var:
+     `_vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR`.
+     VibeProxy writes the active profile's **real path** into `~/.vibeproxy/active-path`, or empties it
+     for the default account. New shells resolve to the right account. (Still next-launch only.)
+
+     > **Default-account gotcha (found during Phase 2 implementation):** `CLAUDE_CONFIG_DIR=~/.claude`
+     > set explicitly ≠ unset. Setting it makes Claude hash `/Users/<u>/.claude` → service
+     > `Claude Code-credentials-72c4fc80` (0 items) → `loggedIn:false`. The default account's bare
+     > Keychain item is read only when the var is **unset**. So: default profile = clear active-path
+     > (shell unsets); read its identity/token with the var unset. Non-default profiles set the var.
   2. **Launch broker:** VibeProxy spawns `claude` / opens Terminal with `CLAUDE_CONFIG_DIR=<real path>`.
 
 ### Still open (low risk)

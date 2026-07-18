@@ -77,7 +77,7 @@ and would risk flagging the user's real paid accounts.
 |---|-------|--------|----------|-----------|
 | 0 | [Mechanism Spike (go/no-go)](./phase-00-mechanism-spike.md) | Pending | P1 | — |
 | 1 | [Foundation & Profile Model](./phase-01-start.md) | ✅ Done | P1 | 0 |
-| 2 | [Profile Management & Config-Swap Switching](./phase-02-profile-management-config-swap-switching.md) | Pending | P1 | 0, 1 |
+| 2 | [Profile Management & Config-Swap Switching](./phase-02-profile-management-config-swap-switching.md) | ✅ Done | P1 | 0, 1 |
 | 3 | [Account Login & Onboarding Flow](./phase-03-account-login-onboarding-flow.md) | Pending | P1 | 0, 2 |
 | 4 | [Usage Polling & Menubar Display](./phase-04-usage-polling-menubar-display.md) | Pending | P1 | 2 |
 | 5 | [Auto-Switch Engine](./phase-05-auto-switch-engine.md) | Pending | P1 | 3, 4 |
