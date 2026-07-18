@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Usage Polling & Menubar Display"
-status: pending
+status: completed
 priority: P1
 effort: "3-4d"
 dependencies: [2]
