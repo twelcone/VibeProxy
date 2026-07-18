@@ -6,9 +6,13 @@ mod platform;
 mod profile;
 mod switch;
 mod tray;
+mod usage;
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use tauri::AppHandle;
+use tokio::sync::RwLock;
 
 use profile::store;
 
@@ -28,6 +32,12 @@ fn get_settings() -> profile::Settings {
 #[tauri::command]
 fn get_active_profile_id() -> Option<String> {
     store::load().active_profile_id
+}
+
+/// Latest usage snapshot for all profiles (the UI also gets live `usage-updated` events).
+#[tauri::command]
+async fn get_usage(state: tauri::State<'_, usage::UsageState>) -> Result<Vec<usage::ProfileUsage>, ()> {
+    Ok(state.read().await.values().cloned().collect())
 }
 
 /// Adopt an existing Claude Code login at `config_dir` as a new profile. Reads identity via
@@ -152,24 +162,29 @@ fn bootstrap_default_profile(app: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let usage_state: usage::UsageState = Arc::new(RwLock::new(HashMap::new()));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(usage_state.clone())
         .invoke_handler(tauri::generate_handler![
             list_profiles,
             get_settings,
             get_active_profile_id,
+            get_usage,
             adopt_profile,
             set_active_profile,
             delete_profile,
             reorder_profiles,
             refresh_profile_meta,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             platform::hide_dock_icon(app);
             store::ensure_initialized()?;
             let handle = app.handle().clone();
             tray::build_tray(&handle)?;
             bootstrap_default_profile(&handle);
+            usage::poller::spawn(handle, usage_state);
             Ok(())
         })
         .run(tauri::generate_context!())
