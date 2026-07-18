@@ -1,6 +1,19 @@
 //! Filesystem layout for VibeProxy. The ONLY place that knows where things live.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// The default Claude Code config dir (`~/.claude`). This account is special: Claude only reads its
+/// (bare) Keychain item when `CLAUDE_CONFIG_DIR` is **unset** — setting the var to this path makes
+/// Claude hash it and look for a non-existent service. So the default is used by *clearing* the env,
+/// never by pointing at it. (Empirically verified — see spike findings.)
+pub fn default_config_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude"))
+}
+
+/// Is this the default `~/.claude` config dir?
+pub fn is_default(config_dir: &Path) -> bool {
+    default_config_dir().as_deref() == Some(config_dir)
+}
 
 /// Root dir VibeProxy owns: `~/.vibeproxy`. Never inside `~/.claude`.
 pub fn vibeproxy_dir() -> PathBuf {

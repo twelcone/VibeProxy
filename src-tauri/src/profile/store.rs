@@ -118,6 +118,56 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Generate a stable, unique profile id (also the dir name for VibeProxy-created profiles).
+pub fn new_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("p_{nanos:x}")
+}
+
+/// Look up a profile by id.
+pub fn find(id: &str) -> Option<Profile> {
+    load().profiles.into_iter().find(|p| p.id == id)
+}
+
+/// Append a profile and persist.
+pub fn add_profile(p: Profile) -> std::io::Result<()> {
+    let mut c = load();
+    c.profiles.push(p);
+    save(&c)
+}
+
+/// Remove a profile; clears `active` if it pointed at that profile.
+pub fn remove_profile(id: &str) -> std::io::Result<()> {
+    let mut c = load();
+    c.profiles.retain(|p| p.id != id);
+    if c.active_profile_id.as_deref() == Some(id) {
+        c.active_profile_id = None;
+    }
+    save(&c)
+}
+
+/// Set the active profile id and persist.
+pub fn set_active_profile_id(id: &str) -> std::io::Result<()> {
+    let mut c = load();
+    c.active_profile_id = Some(id.to_string());
+    save(&c)
+}
+
+/// Reorder profiles to match `order` (ids); unknown/missing ids fall to the end. Renumbers priority.
+pub fn reorder(order: &[String]) -> std::io::Result<()> {
+    let mut c = load();
+    c.profiles
+        .sort_by_key(|p| order.iter().position(|id| id == &p.id).unwrap_or(usize::MAX));
+    for (i, p) in c.profiles.iter_mut().enumerate() {
+        p.priority = i as i32;
+    }
+    save(&c)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,35 +1,62 @@
-//! Menubar tray: renders the profile list from the store and hosts the app menu.
+//! Menubar tray: renders the profile list from the store, switches on click, hosts the app menu.
 
 use crate::profile;
 use tauri::{
-    menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
-    tray::TrayIconBuilder,
+    menu::{Menu, MenuBuilder, MenuEvent, MenuItemBuilder, PredefinedMenuItem},
+    tray::{TrayIcon, TrayIconBuilder},
     AppHandle, Manager, Wry,
 };
 
-/// Build the tray icon + menu and attach it to the app. Called once in `setup()`.
+const TRAY_ID: &str = "main";
+
+/// Build the tray icon + menu and attach it. Called once in `setup()`.
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let cfg = profile::store::load();
     let menu = build_menu(app, &cfg)?;
-
-    TrayIconBuilder::with_id("main")
+    let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().expect("bundled icon").clone())
-        // macOS shows this string next to the tray icon; updated live in Phase 4.
-        .title("VibeProxy")
         .tooltip("VibeProxy")
         .menu(&menu)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "quit" => app.exit(0),
-            "open" => show_main_window(app),
-            // Per-profile clicks become "switch active profile" in Phase 2.
-            _ => {}
-        })
+        .on_menu_event(on_menu_event)
         .build(app)?;
-
+    apply_title(&tray, &cfg);
     Ok(())
 }
 
-/// Render the dropdown menu from current config: profile rows, then Open / Quit.
+/// Rebuild the menu + title from the current store (after a switch / add / delete).
+pub fn refresh(app: &AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
+    let cfg = profile::store::load();
+    if let Ok(menu) = build_menu(app, &cfg) {
+        let _ = tray.set_menu(Some(menu));
+    }
+    apply_title(&tray, &cfg);
+}
+
+fn on_menu_event(app: &AppHandle, event: MenuEvent) {
+    match event.id.as_ref() {
+        "quit" => app.exit(0),
+        "open" => show_main_window(app),
+        id => {
+            // A profile row was clicked → make it active.
+            if profile::store::find(id).is_some() {
+                let _ = crate::activate(app, id);
+            }
+        }
+    }
+}
+
+/// macOS: show the active profile's label next to the tray icon. Phase 4 appends live usage.
+fn apply_title(tray: &TrayIcon, cfg: &profile::Config) {
+    let title = cfg
+        .active_profile_id
+        .as_ref()
+        .and_then(|id| cfg.profiles.iter().find(|p| &p.id == id))
+        .map(|p| p.label.clone())
+        .unwrap_or_else(|| "VibeProxy".to_string());
+    let _ = tray.set_title(Some(title));
+}
+
 fn build_menu(app: &AppHandle, cfg: &profile::Config) -> tauri::Result<Menu<Wry>> {
     let mut builder = MenuBuilder::new(app);
 
@@ -50,7 +77,6 @@ fn build_menu(app: &AppHandle, cfg: &profile::Config) -> tauri::Result<Menu<Wry>
     let sep = PredefinedMenuItem::separator(app)?;
     let open = MenuItemBuilder::with_id("open", "Open VibeProxy").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit VibeProxy").build(app)?;
-
     builder.item(&sep).item(&open).item(&quit).build()
 }
 
