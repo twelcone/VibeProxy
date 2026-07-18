@@ -1,0 +1,29 @@
+# Local agent tooling (AgentKit) — not part of the app
+.claude/
+.agentkit/
+
+# Secrets / credentials — never commit
+*.env
+.env*
+*.pem
+*.key
+*credentials*
+.credentials.json
+
+# Rust / Tauri build output
+/target/
+src-tauri/target/
+**/*.rs.bk
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+*.swp
