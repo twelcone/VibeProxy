@@ -67,13 +67,13 @@ struct ProfileUsage {
 `status` drives both the UI ("live" vs greyed "needs re-login" vs "stale 2d") and Phase 5 eligibility
 (only `Ok` and fresh-enough profiles are switch candidates).
 
-**Poller (`usage/poller.rs`):** a `tokio` interval task; on each tick, read token (Phase 2 file store)
+**Poller (`usage/poller.rs`):** a `tokio` interval task; on each tick, read token (Phase 2 Keychain store)
 → `reqwest` GET → parse → update shared state (`Arc<RwLock<HashMap<id,ProfileUsage>>>`) → emit a Tauri
 event so tray + UI refresh.
 
 **Token freshness — the load-bearing problem (do not skip).** Access tokens expire ~24h after issue,
 and Claude Code only refreshes the token of a profile *while it is running*. Under this architecture,
-**inactive profiles never run**, so their file-based tokens expire within a day and `/api/oauth/usage`
+**inactive profiles never run**, so their Keychain-stored tokens expire within a day and `/api/oauth/usage`
 returns 401 — which would make the per-profile usage display (a P1 goal) read "needs re-login" for
 every non-active account almost all the time. Two mitigations, both required:
 

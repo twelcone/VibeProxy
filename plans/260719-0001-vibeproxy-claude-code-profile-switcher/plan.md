@@ -61,14 +61,14 @@ and would risk flagging the user's real paid accounts.
 │        ▼                         │                            │                               │
 │  ┌───────────────┐   ┌───────────────────┐   ┌────────────────────────┐   ┌────────────────┐  │
 │  │ Poller (tokio)│   │ Profile store     │   │ Switch broker          │   │ Auto-switch    │  │
-│  │ GET /api/     │──▶│ ~/.vibeproxy/     │◀──│ atomic active-dir swap │◀──│ engine (thresh │  │
-│  │ oauth/usage   │   │  profiles/<id>/   │   │ (symlink / config ptr) │   │ + cooldown)    │  │
+│  │ GET /api/     │──▶│ ~/.vibeproxy/     │◀──│ write active-path file │◀──│ engine (thresh │  │
+│  │ oauth/usage   │   │  profiles/<id>/   │   │ (real path, NO symlink)│   │ + cooldown)    │  │
 │  │ per profile   │   │  config.json      │   └────────────────────────┘   └────────────────┘  │
 │  └───────────────┘   └───────────────────┘                                                    │
 └───────────────────────────────────────────────────────────────────────────────────────────────┘
-        │ Bearer <profile token>                              │ sets which CLAUDE_CONFIG_DIR
-        ▼ (read-only usage)                                   ▼ the next `claude` uses
-   api.anthropic.com/api/oauth/usage                    `claude` (official client, real login)
+        │ Bearer token from Keychain svc                      │ shell reads active-path →
+        ▼ "Claude Code-credentials-<sha256(path)[:8]>"        ▼ CLAUDE_CONFIG_DIR=<real path>
+   api.anthropic.com/api/oauth/usage  (read-only)        `claude` (official client, real login)
 ```
 
 ## Phases
@@ -76,7 +76,7 @@ and would risk flagging the user's real paid accounts.
 | # | Phase | Status | Priority | Depends on |
 |---|-------|--------|----------|-----------|
 | 0 | [Mechanism Spike (go/no-go)](./phase-00-mechanism-spike.md) | Pending | P1 | — |
-| 1 | [Foundation & Profile Model](./phase-01-start.md) | Pending | P1 | 0 |
+| 1 | [Foundation & Profile Model](./phase-01-start.md) | ✅ Done | P1 | 0 |
 | 2 | [Profile Management & Config-Swap Switching](./phase-02-profile-management-config-swap-switching.md) | Pending | P1 | 0, 1 |
 | 3 | [Account Login & Onboarding Flow](./phase-03-account-login-onboarding-flow.md) | Pending | P1 | 0, 2 |
 | 4 | [Usage Polling & Menubar Display](./phase-04-usage-polling-menubar-display.md) | Pending | P1 | 2 |
@@ -84,17 +84,19 @@ and would risk flagging the user's real paid accounts.
 | 6 | [UI/UX & Settings](./phase-06-uiux-settings.md) | Pending | P2 | 3, 4, 5 |
 | 7 | [Packaging & Open-Source Release](./phase-07-packaging-open-source-release.md) | Pending | P2 | 1–6 |
 
-> **Phase 0 gates everything.** It is shell-only (no Rust) and validates the load-bearing unknowns
-> (config-dir + symlink honored, where creds land on login/refresh, inactive-profile token freshness,
-> usage endpoint with file tokens). Ship no Rust until it returns GO.
+> **Phase 0 gates everything — now essentially GO** (see `reports/spike-260719-mechanism-findings.md`).
+> Shell-only spike confirmed: config-dir isolates accounts, `claude auth status --json` gives
+> identity+keep-fresh, creds live in Keychain under a deterministic per-path service name. **One design
+> correction: the switch is a real-path indirection file, not a symlink.** Only a 24h refresh soak +
+> the GUI-launch inheritance check remain open (low risk).
 
 ## Key decisions (evidence-backed)
 
 | Decision | Choice | Why |
 |----------|--------|-----|
 | Profile type | Claude Pro/Max OAuth logins | User requirement |
-| Switch mechanism | `CLAUDE_CONFIG_DIR` per profile + atomic active swap | Only ToS-accepted multi-account pattern; no hot-swap of a running session exists |
-| Credential store | Force **file-based** `.credentials.json` per profile dir (mode 0600) | Lets VibeProxy read *all* profiles' tokens; sidesteps macOS Keychain per-path-hash uncertainty & entitlement fight |
+| Switch mechanism | `CLAUDE_CONFIG_DIR` per profile → **real-path indirection file** (`~/.vibeproxy/active-path`) + launch broker | Only ToS-accepted pattern; **Phase 0 proved a symlink collides all profiles' Keychain items** — must target the real path; no hot-swap of a running session exists |
+| Credential store | **Keychain-per-path** — read svc `Claude Code-credentials-<sha256(dir)[:8]>` via `/usr/bin/security` | Phase 0: logins write tokens to Keychain (not a file); deterministic per-path name gives clean multi-profile reads, tokens stay encrypted |
 | Quota signal | Poll `GET /api/oauth/usage` per profile | Live 5h + weekly % + `resets_at`; mirrors this repo's own hook. **Not** used for inference (residual ToS risk noted above) |
 | Token freshness | Keep-fresh via spawning official `claude` per profile | Inactive profiles' tokens expire in ~24h; only the official client may refresh them ToS-safely |
 | Auto-switch | Pre-emptive on numeric threshold; repoints next launch + "relaunch" action | No mechanism switches a *live* session; repoint + optional relaunch is the honest UX |
@@ -116,9 +118,9 @@ and would risk flagging the user's real paid accounts.
    profile ever gets refreshed by Claude Code, so per-profile usage would rot to "needs re-login".
    Mitigate: keep-fresh by spawning the official `claude` per profile (Phase 0 verifies the command);
    poll inactive profiles lazily; treat stale/`needs_reauth` profiles as ineligible for auto-switch.
-2. **File-based cred write-back unverified** — login/refresh may write to Keychain, not the file,
-   stranding or bricking a profile. Mitigate: **Phase 0 validates the full login+refresh lifecycle
-   before any Rust**; never write a Keychain-exported token into a dir unless its account matches.
+2. **Keychain ACL prompts** (resolved design) — reading `claude`'s Keychain items from VibeProxy
+   prompts until "Always Allow". Mitigate: `/usr/bin/security` subprocess (repo-hook precedent), one
+   grant per profile service, first-run explainer. (The old file-vs-Keychain unknown is resolved: Keychain.)
 3. **`CLAUDE_CONFIG_DIR` + `/api/oauth/usage` are undocumented** — Anthropic could change either.
    Mitigate: isolate each behind one module; conservative poll interval; schema-tolerant parsing;
    graceful degradation; smoke-test on each Claude Code update.
@@ -140,9 +142,11 @@ and would risk flagging the user's real paid accounts.
 ## Open questions (need answers before/within the noted phase)
 
 - **[Decision] Is the residual usage-polling ToS risk acceptable for a *public* release?** User accepted it for the architecture; confirm the README framing is acceptable before Phase 7 goes public.
-- **[Phase 0]** Does a keep-fresh `claude` subcommand exist that refreshes an inactive profile's token without a full session? (Blocks the Phase 4 usage design.)
-- **[Phase 0]** Do login/refresh write creds to the profile's `.credentials.json` or Keychain on macOS? Can profiles use file-based creds at all?
-- **[Phase 0/3]** Exact list of shared non-secret config safe to symlink/copy into new profile dirs without breaking per-account identity.
+- ~~[Phase 0] keep-fresh command?~~ **Resolved:** `claude auth status --json` per config dir (also gives identity/tier). Refresh-on-status still needs a 24h soak confirm.
+- ~~[Phase 0] where do creds land?~~ **Resolved:** macOS Keychain, svc `Claude Code-credentials-<sha256(realpath)[:8]>` (not a file). Symlink switch invalid → use real-path indirection.
+- **[Phase 0 — soak]** Does token refresh write back to the same Keychain item (no re-login) over 24h+? (`~/vp-spike` soak in progress.)
+- **[Phase 0/3]** Exact list of shared non-secret config safe to copy into new profile dirs without breaking per-account identity.
+- **[Phase 2/7]** Does a VS Code/Cursor-launched `claude` inherit `launchctl setenv CLAUDE_CONFIG_DIR`? (GUI-launch mitigation.)
 - **[Phase 5]** Exact `error.type`/body + `limits[].severity` of a real quota-exhaustion response (only low-utilization `normal` observed live).
 - **[Phase 7]** License choice (MIT suggested) — confirm before first public release.
 

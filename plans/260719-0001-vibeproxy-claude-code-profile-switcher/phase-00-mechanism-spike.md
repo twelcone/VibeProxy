@@ -1,13 +1,20 @@
 ---
 phase: 0
 title: "Mechanism Spike (go/no-go)"
-status: pending
+status: mostly-complete
 priority: P1
 effort: "1-2d + 24h refresh soak"
 dependencies: []
 ---
 
 # Phase 0: Mechanism Spike (go/no-go)
+
+> **RESULT: GO** — see [`../reports/spike-260719-mechanism-findings.md`](../reports/spike-260719-mechanism-findings.md).
+> The questions below are the original spike recipe; most are answered. Key outcomes: `CLAUDE_CONFIG_DIR`
+> isolates accounts; creds are in the **Keychain** (svc `Claude Code-credentials-<sha256(path)[:8]>`), not
+> a file; `claude auth status --json` is the identity/keep-fresh command; **the switch must use a
+> real-path indirection file, NOT a symlink** (a fixed symlink collides all profiles). Still open: 24h
+> refresh soak + GUI-launch (`launchctl setenv`) inheritance.
 
 ## Overview
 

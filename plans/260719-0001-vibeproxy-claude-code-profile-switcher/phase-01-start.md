@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Foundation & Profile Model"
-status: pending
+status: completed
 priority: P1
 effort: "3-4d"
 dependencies: [0]
@@ -33,11 +33,13 @@ config. No live usage or switching yet — this is the scaffold everything else 
 ```
 ~/.vibeproxy/
   config.json                 # { schemaVersion, activeProfileId, profiles:[...], settings:{...} }
+  active-path                 # plain file: the real path of the active profile dir (shell reads this)
   profiles/
-    <profile-id>/             # this dir IS a CLAUDE_CONFIG_DIR for that account
-      .credentials.json       # file-based OAuth creds (mode 0600) — populated in Phase 3
-      .claude.json            # per-profile Claude Code config incl. oauthAccount block
+    <profile-id>/             # this dir IS a CLAUDE_CONFIG_DIR for that account (stable real path)
+      .claude.json            # per-profile Claude Code config incl. oauthAccount metadata
       ...                     # settings.json, history, projects (isolated per profile)
+      # NOTE: the OAuth *token* is NOT here — it lives in the macOS Keychain under service
+      #       "Claude Code-credentials-<sha256(this dir path)[:8]>" (confirmed in Phase 0)
 ```
 
 **Profile record (in `config.json`):**
