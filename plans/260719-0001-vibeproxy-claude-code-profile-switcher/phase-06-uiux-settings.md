@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: "UI/UX & Settings"
-status: pending
+status: completed
 priority: P2
 effort: "4-5d"
 dependencies: [3, 4, 5]

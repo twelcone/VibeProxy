@@ -81,7 +81,7 @@ and would risk flagging the user's real paid accounts.
 | 3 | [Account Login & Onboarding Flow](./phase-03-account-login-onboarding-flow.md) | ✅ Done | P1 | 0, 2 |
 | 4 | [Usage Polling & Menubar Display](./phase-04-usage-polling-menubar-display.md) | ✅ Done | P1 | 2 |
 | 5 | [Auto-Switch Engine](./phase-05-auto-switch-engine.md) | ✅ Done | P1 | 3, 4 |
-| 6 | [UI/UX & Settings](./phase-06-uiux-settings.md) | Pending | P2 | 3, 4, 5 |
+| 6 | [UI/UX & Settings](./phase-06-uiux-settings.md) | ✅ Done | P2 | 3, 4, 5 |
 | 7 | [Packaging & Open-Source Release](./phase-07-packaging-open-source-release.md) | Pending | P2 | 1–6 |
 
 > **Phase 0 gates everything — now essentially GO** (see `reports/spike-260719-mechanism-findings.md`).
