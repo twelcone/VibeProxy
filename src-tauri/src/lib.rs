@@ -9,6 +9,7 @@ mod profile;
 mod switch;
 mod tray;
 mod usage;
+mod usage_analytics;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -59,6 +60,16 @@ fn get_active_profile_id() -> Option<String> {
 #[tauri::command]
 async fn get_usage(state: tauri::State<'_, usage::UsageState>) -> Result<Vec<usage::ProfileUsage>, ()> {
     Ok(state.read().await.values().cloned().collect())
+}
+
+/// Token-usage analytics parsed from every account's local Claude Code logs (read-only).
+#[tauri::command]
+async fn get_usage_analytics(
+    range: Option<usage_analytics::Range>,
+) -> Result<usage_analytics::Analytics, String> {
+    tauri::async_runtime::spawn_blocking(move || usage_analytics::scan(&range))
+        .await
+        .map_err(|e| format!("usage scan task failed: {e}"))
 }
 
 /// Adopt an existing Claude Code login at `config_dir` as a new profile. Reads identity via
@@ -259,6 +270,7 @@ pub fn run() {
             set_settings,
             get_active_profile_id,
             get_usage,
+            get_usage_analytics,
             adopt_profile,
             begin_add_profile,
             check_login_status,

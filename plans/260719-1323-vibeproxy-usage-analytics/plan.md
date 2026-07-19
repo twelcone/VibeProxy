@@ -71,7 +71,7 @@ defaults are overridden by the project's own system).
 
 | # | Phase | Status | Depends on |
 |---|-------|--------|-----------|
-| 1 | [Usage Log Parser & Aggregator](./phase-01-start.md) | Pending | — |
+| 1 | [Usage Log Parser & Aggregator](./phase-01-start.md) | ✅ Done | — |
 | 2 | [Cost Estimation](./phase-02-cost-estimation.md) | Pending | 1 |
 | 3 | [Analytics UI (KPIs, per-model, per-project)](./phase-03-analytics-ui-kpis-per-model-per-project.md) | Pending | 1, 2 |
 | 4 | [Time-Series Charts and Filters](./phase-04-time-series-charts-and-filters.md) | Pending | 3 |
