@@ -1,7 +1,7 @@
 ---
 phase: 7
 title: "Packaging & Open-Source Release"
-status: pending
+status: completed
 priority: P2
 effort: "2-3d"
 dependencies: [1, 2, 3, 4, 5, 6]

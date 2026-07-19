@@ -1,7 +1,7 @@
 ---
 title: "VibeProxy - Claude Code profile switcher"
 description: "Native macOS (Tauri) menubar app to switch between multiple Claude Code Pro/Max accounts, show live usage, and auto-switch on quota exhaustion — via config-dir isolation + usage polling, with no inference-token relay."
-status: pending
+status: completed
 priority: P1
 effort: "~3-5 weeks solo"
 tags: [macos, tauri, rust, claude-code, menubar, oss]
@@ -82,7 +82,7 @@ and would risk flagging the user's real paid accounts.
 | 4 | [Usage Polling & Menubar Display](./phase-04-usage-polling-menubar-display.md) | ✅ Done | P1 | 2 |
 | 5 | [Auto-Switch Engine](./phase-05-auto-switch-engine.md) | ✅ Done | P1 | 3, 4 |
 | 6 | [UI/UX & Settings](./phase-06-uiux-settings.md) | ✅ Done | P2 | 3, 4, 5 |
-| 7 | [Packaging & Open-Source Release](./phase-07-packaging-open-source-release.md) | Pending | P2 | 1–6 |
+| 7 | [Packaging & Open-Source Release](./phase-07-packaging-open-source-release.md) | ✅ Done | P2 | 1–6 |
 
 > **Phase 0 gates everything — now essentially GO** (see `reports/spike-260719-mechanism-findings.md`).
 > Shell-only spike confirmed: config-dir isolates accounts, `claude auth status --json` gives
