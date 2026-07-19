@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Account Login & Onboarding Flow"
-status: pending
+status: completed
 priority: P1
 effort: "3-4d"
 dependencies: [0, 2]

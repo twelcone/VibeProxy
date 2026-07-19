@@ -63,8 +63,10 @@ resolved realpath (`e30f4f07`). Therefore:
 
 ### Still open (low risk)
 
-- **Q4 — refresh write-back** (24h soak): re-run `CLAUDE_CONFIG_DIR=~/vp-spike claude auth status --json`
-  after ~24h; confirm it still works without re-login (token refreshes in the same Keychain item).
+- **Q4 — refresh write-back** (soak): ~11h after login, `CLAUDE_CONFIG_DIR=~/vp-spike claude auth status
+  --json` still returns `loggedIn: true` (toanpt) with no re-login — refresh token intact, risk low.
+  (Within the original ~24h token life, so a full post-expiry refresh-in-place confirmation is still
+  pending, but the inactive-profile concern is substantially de-risked.)
 - **Q7 — GUI inheritance:** does a VS Code/Cursor-launched `claude` pick up `launchctl setenv
   CLAUDE_CONFIG_DIR …`? (test in-editor.)
 - `/api/oauth/usage` `severity` near 100% still unobserved.
