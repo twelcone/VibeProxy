@@ -2,6 +2,7 @@
 //! Phase 2: adopt existing logins, read identity, and switch the active profile by real path.
 
 mod keychain;
+mod onboarding;
 mod platform;
 mod profile;
 mod switch;
@@ -48,16 +49,15 @@ fn adopt_profile(
     label: String,
     config_dir: String,
 ) -> Result<profile::Profile, String> {
+    let config_dir = expand_tilde(config_dir);
     let status = profile::account_meta::fetch(Path::new(&config_dir))?;
     if !status.logged_in {
         return Err("no logged-in Claude account at that config dir".to_string());
     }
     let cfg = store::load();
-    if let Some(existing) = cfg
-        .profiles
-        .iter()
-        .find(|p| p.org_id.is_some() && p.org_id == status.org_id)
-    {
+    if let Some(existing) = cfg.profiles.iter().find(|p| {
+        p.config_dir == config_dir || (p.org_id.is_some() && p.org_id == status.org_id)
+    }) {
         return Err(format!("that account is already added as \"{}\"", existing.label));
     }
     let is_first = cfg.profiles.is_empty();
@@ -79,6 +79,33 @@ fn adopt_profile(
     Ok(profile)
 }
 
+/// Start adding a new account: create an isolated config dir and open the browser login for it.
+/// Returns the pending config dir; the UI polls `check_login_status`, then calls `adopt_profile`.
+#[tauri::command]
+fn begin_add_profile() -> Result<PendingAdd, String> {
+    let config_dir = onboarding::prepare().map_err(|e| e.to_string())?;
+    onboarding::launch_login(&config_dir).map_err(|e| e.to_string())?;
+    Ok(PendingAdd { config_dir })
+}
+
+/// Poll whether the login into `config_dir` has completed (and read the account it bound to).
+#[tauri::command]
+fn check_login_status(config_dir: String) -> Result<profile::account_meta::AuthStatus, String> {
+    profile::account_meta::fetch(Path::new(&config_dir))
+}
+
+/// Abandon an in-progress add (removes the not-yet-registered profile dir).
+#[tauri::command]
+fn cancel_add_profile(config_dir: String) -> Result<(), String> {
+    onboarding::cleanup(&config_dir).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingAdd {
+    config_dir: String,
+}
+
 /// Make a profile active (next `claude` launch uses it).
 #[tauri::command]
 fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
@@ -88,7 +115,17 @@ fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
 /// Remove a profile from VibeProxy (does not touch its Keychain item or config dir).
 #[tauri::command]
 fn delete_profile(app: AppHandle, id: String) -> Result<(), String> {
+    let was_active = store::load().active_profile_id.as_deref() == Some(id.as_str());
     store::remove_profile(&id).map_err(|e| e.to_string())?;
+    if was_active {
+        // Don't leave active-path pointing at a removed dir: re-point to the first remaining
+        // profile, or clear it (→ shell falls back to the default account).
+        let next = store::load().profiles.first().map(|p| p.id.clone());
+        match next {
+            Some(pid) => activate(&app, &pid)?,
+            None => switch::set_active_config_dir("").map_err(|e| e.to_string())?,
+        }
+    }
     tray::refresh(&app);
     Ok(())
 }
@@ -109,8 +146,7 @@ fn refresh_profile_meta(app: AppHandle, id: String) -> Result<profile::Profile, 
     p.email = status.email;
     p.org_id = status.org_id;
     p.subscription_type = status.subscription_type;
-    store::remove_profile(&id).map_err(|e| e.to_string())?;
-    store::add_profile(p.clone()).map_err(|e| e.to_string())?;
+    store::update_profile(p.clone()).map_err(|e| e.to_string())?;
     tray::refresh(&app);
     Ok(p)
 }
@@ -130,6 +166,16 @@ pub(crate) fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
     store::set_active_profile_id(id).map_err(|e| e.to_string())?;
     tray::refresh(app);
     Ok(())
+}
+
+/// Expand a leading `~/` to the home dir (Rust's `Command`/paths don't do shell tilde expansion).
+fn expand_tilde(p: String) -> String {
+    if let Some(rest) = p.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest).to_string_lossy().to_string();
+        }
+    }
+    p
 }
 
 /// First run: if there are no profiles yet, adopt the default `~/.claude` login as "Main".
@@ -173,6 +219,9 @@ pub fn run() {
             get_active_profile_id,
             get_usage,
             adopt_profile,
+            begin_add_profile,
+            check_login_status,
+            cancel_add_profile,
             set_active_profile,
             delete_profile,
             reorder_profiles,
@@ -184,6 +233,7 @@ pub fn run() {
             let handle = app.handle().clone();
             tray::build_tray(&handle)?;
             bootstrap_default_profile(&handle);
+            onboarding::gc_orphans();
             usage::poller::spawn(handle, usage_state);
             Ok(())
         })

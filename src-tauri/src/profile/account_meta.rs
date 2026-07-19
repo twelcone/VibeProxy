@@ -2,11 +2,11 @@
 //!
 //! ToS-safe: the official client reads its own credentials; VibeProxy never touches the token here.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatus {
     #[serde(default)]
