@@ -6,7 +6,11 @@
 
 use super::{client, model::ProfileUsage};
 use crate::{keychain, profile, tray};
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
 
@@ -24,14 +28,23 @@ pub fn spawn(app: AppHandle, state: UsageState) {
             let cfg = profile::store::load();
             let interval = cfg.settings.poll_interval_secs.max(60);
             let active_id = cfg.active_profile_id.clone();
+            let known: HashSet<String> = state.read().await.keys().cloned().collect();
 
             for p in &cfg.profiles {
                 let is_active = Some(&p.id) == active_id.as_ref();
-                if !is_active && tick % INACTIVE_EVERY != 0 {
+                // Poll: the active profile every tick, never-seen profiles immediately, others lazily.
+                let never_polled = !known.contains(&p.id);
+                if !is_active && !never_polled && tick % INACTIVE_EVERY != 0 {
                     continue;
                 }
                 let usage = poll_one(&p.id, PathBuf::from(&p.config_dir), is_active).await;
                 state.write().await.insert(p.id.clone(), usage);
+            }
+
+            // Drop usage for profiles that no longer exist.
+            {
+                let ids: HashSet<&str> = cfg.profiles.iter().map(|p| p.id.as_str()).collect();
+                state.write().await.retain(|k, _| ids.contains(k.as_str()));
             }
 
             // Notify the UI, then refresh the tray meter for the active profile.
@@ -59,11 +72,14 @@ async fn poll_one(profile_id: &str, config_dir: PathBuf, is_active: bool) -> Pro
     }
 
     // Read the token off the async executor (Keychain access may block on a GUI prompt once).
+    // A Keychain failure is transient (locked / not-yet-authorized) → Error, NOT NeedsReauth;
+    // only a 401 from the usage endpoint means the token is actually invalid.
     let token = {
         let dir = config_dir.clone();
         match tauri::async_runtime::spawn_blocking(move || keychain::read_token(&dir)).await {
             Ok(Ok(t)) => t,
-            _ => return ProfileUsage::needs_reauth(profile_id),
+            Ok(Err(e)) => return ProfileUsage::error(profile_id, format!("keychain: {e}")),
+            Err(_) => return ProfileUsage::error(profile_id, "keychain read task failed".into()),
         }
     };
 

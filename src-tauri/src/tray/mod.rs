@@ -26,13 +26,22 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Rebuild the menu + title from the current store (after a switch / add / delete).
+/// Rebuild the menu + icon + title from the current store (after a switch / add / delete).
+/// Pulls the latest usage snapshot so a switch immediately shows the new profile's meter (or clears
+/// the old one) instead of leaving the previous profile's colored meter until the next poll.
 pub fn refresh(app: &AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
     let cfg = profile::store::load();
     if let Ok(menu) = build_menu(app, &cfg) {
         let _ = tray.set_menu(Some(menu));
     }
+    if let Some(state) = app.try_state::<crate::usage::UsageState>() {
+        if let Ok(map) = state.try_read() {
+            update_icon_and_title(app, &tray, &cfg, &map);
+            return;
+        }
+    }
+    reset_icon(app, &tray);
     apply_title(&tray, &cfg);
 }
 
@@ -90,34 +99,55 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-/// Update the tray for the active profile's latest usage: a colored fill-meter icon + "<label> NN%".
-/// Called by the poller. Falls back to just the label when usage is unavailable.
+/// Update the tray for the active profile's latest usage (called by the poller).
 pub fn apply_active_usage(app: &AppHandle, cfg: &profile::Config, usage: &HashMap<String, ProfileUsage>) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
-    let Some(active_id) = cfg.active_profile_id.as_deref() else { return };
-    let label = cfg
-        .profiles
-        .iter()
-        .find(|p| p.id == active_id)
-        .map(|p| p.label.clone())
-        .unwrap_or_default();
+    update_icon_and_title(app, &tray, cfg, usage);
+}
 
-    match usage.get(active_id) {
-        Some(u) if u.status == UsageStatus::Ok => {
-            if let Some(pct) = u.five_hour_pct {
-                let _ = tray.set_icon(Some(draw_meter(pct)));
-                let _ = tray.set_icon_as_template(false); // keep the severity color
-                let _ = tray.set_title(Some(format!("{label} {}%", pct.round() as i32)));
-                return;
-            }
+/// Draw the fill-meter + "<label> NN%" for the active profile, or reset to the plain icon + label
+/// when usage is Ok-but-missing / needs-reauth / errored / absent. Never leaves a stale meter.
+fn update_icon_and_title(
+    app: &AppHandle,
+    tray: &TrayIcon,
+    cfg: &profile::Config,
+    usage: &HashMap<String, ProfileUsage>,
+) {
+    let active = cfg
+        .active_profile_id
+        .as_deref()
+        .and_then(|id| cfg.profiles.iter().find(|p| p.id == id));
+    let Some(p) = active else {
+        reset_icon(app, tray);
+        let _ = tray.set_title(Some("VibeProxy".to_string()));
+        return;
+    };
+    let label = p.label.clone();
+
+    match usage.get(&p.id) {
+        Some(u) if u.status == UsageStatus::Ok && u.five_hour_pct.is_some() => {
+            let pct = u.five_hour_pct.unwrap();
+            let _ = tray.set_icon(Some(draw_meter(pct)));
+            let _ = tray.set_icon_as_template(false); // keep the severity color
+            let _ = tray.set_title(Some(format!("{label} {}%", pct.round() as i32)));
         }
         Some(u) if u.status == UsageStatus::NeedsReauth => {
+            reset_icon(app, tray);
             let _ = tray.set_title(Some(format!("{label} · re-login")));
-            return;
         }
-        _ => {}
+        _ => {
+            reset_icon(app, tray);
+            let _ = tray.set_title(Some(label));
+        }
     }
-    let _ = tray.set_title(Some(label));
+}
+
+/// Restore the plain app icon (template mode so macOS tints it normally).
+fn reset_icon(app: &AppHandle, tray: &TrayIcon) {
+    if let Some(icon) = app.default_window_icon() {
+        let _ = tray.set_icon(Some(icon.clone()));
+        let _ = tray.set_icon_as_template(true);
+    }
 }
 
 /// Severity color for a utilization percentage (matches the design system's usage scale).

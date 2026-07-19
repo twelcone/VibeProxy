@@ -16,7 +16,13 @@ pub fn is_default(config_dir: &Path) -> bool {
 }
 
 /// Root dir VibeProxy owns: `~/.vibeproxy`. Never inside `~/.claude`.
+/// Honors `VIBEPROXY_DIR` when set (used by tests to isolate state; also lets a user relocate it).
 pub fn vibeproxy_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("VIBEPROXY_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
     dirs::home_dir()
         .expect("could not resolve home directory")
         .join(".vibeproxy")
