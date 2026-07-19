@@ -22,10 +22,11 @@
   let importLabel = $state("");
   let banner = $state("");
 
+  let notice = $state("");
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let pollAttempts = 0;
   const MAX_POLL_ATTEMPTS = 150; // ~5 min at 2s
-  let unlisten: (() => void) | null = null;
+  let unlisteners: Array<() => void> = [];
 
   async function refresh() {
     profiles = await invoke<Profile[]>("list_profiles");
@@ -36,15 +37,28 @@
 
   onMount(async () => {
     await refresh();
-    unlisten = await listen<Usage[]>("usage-updated", (e) => {
-      const next = { ...usage };
-      for (const u of e.payload) next[u.profileId] = u;
-      usage = next;
-    });
+    unlisteners.push(
+      await listen<Usage[]>("usage-updated", (e) => {
+        const next = { ...usage };
+        for (const u of e.payload) next[u.profileId] = u;
+        usage = next;
+      }),
+    );
+    unlisteners.push(
+      await listen<{ from: string; to: string; pct: number }>("auto-switched", async (e) => {
+        notice = `Auto-switched to ${e.payload.to} — ${e.payload.from} hit ${e.payload.pct}%.`;
+        await refresh();
+      }),
+    );
+    unlisteners.push(
+      await listen<{ active: string; pct: number }>("auto-switch-blocked", (e) => {
+        notice = `All accounts near their limit (${e.payload.active} at ${e.payload.pct}%).`;
+      }),
+    );
   });
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer);
-    unlisten?.();
+    for (const u of unlisteners) u();
   });
 
   const sev = (v: number) => (v >= 90 ? "crit" : v >= 70 ? "warn" : "good");
@@ -60,6 +74,9 @@
   async function switchTo(id: string) {
     await invoke("set_active_profile", { id });
     await refresh();
+  }
+  async function relaunch() {
+    try { await invoke("relaunch_claude"); } catch (e) { banner = `${e}`; }
   }
   async function del(p: Profile) {
     if (!confirm(`Remove "${p.label}" from VibeProxy? (Your Claude login is left untouched.)`)) return;
@@ -124,6 +141,7 @@
   <header><h1>VibeProxy</h1><span class="sub">Claude Code account switcher</span></header>
 
   {#if banner}<div class="banner" role="alert">{banner} <button class="x" onclick={() => (banner = "")}>×</button></div>{/if}
+  {#if notice}<div class="notice" role="status">{notice} <button class="x" onclick={() => (notice = "")}>×</button></div>{/if}
 
   <section>
     <h2>Accounts</h2>
@@ -145,6 +163,7 @@
         <div class="actions">
           {#if p.id === activeId}
             <button class="btn ghost" disabled>✓ Active</button>
+            <button class="btn" onclick={relaunch} title="Open a terminal on this account">Relaunch</button>
           {:else}
             <button class="btn" onclick={() => switchTo(p.id)}>Switch</button>
           {/if}
@@ -211,6 +230,8 @@
   .empty { color: var(--ink-faint); font-size: .9rem; }
   .banner { background: color-mix(in srgb, var(--crit) 12%, transparent); color: var(--crit); padding: 8px 10px; border-radius: 8px; font-size: .85rem; margin-top: 8px; display: flex; }
   .banner .x { margin-left: auto; background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
+  .notice { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); padding: 8px 10px; border-radius: 8px; font-size: .85rem; margin-top: 8px; display: flex; }
+  .notice .x { margin-left: auto; background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
 
   .card { border: 1px solid var(--hair); border-radius: 10px; padding: 11px 12px; margin-bottom: 9px;
     display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; }

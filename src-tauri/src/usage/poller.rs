@@ -24,6 +24,7 @@ pub type UsageState = Arc<RwLock<HashMap<String, ProfileUsage>>>;
 pub fn spawn(app: AppHandle, state: UsageState) {
     tauri::async_runtime::spawn(async move {
         let mut tick: u64 = 0;
+        let mut cooldown_until: Option<std::time::Instant> = None;
         loop {
             let cfg = profile::store::load();
             let interval = cfg.settings.poll_interval_secs.max(60);
@@ -48,12 +49,10 @@ pub fn spawn(app: AppHandle, state: UsageState) {
             }
 
             // Notify the UI, then refresh the tray meter for the active profile.
-            let snapshot: Vec<ProfileUsage> = state.read().await.values().cloned().collect();
-            let _ = app.emit("usage-updated", &snapshot);
-            {
-                let guard = state.read().await;
-                tray::apply_active_usage(&app, &cfg, &guard);
-            }
+            let map = state.read().await.clone();
+            let _ = app.emit("usage-updated", &map.values().cloned().collect::<Vec<_>>());
+            tray::apply_active_usage(&app, &cfg, &map);
+            crate::autoswitch::maybe_switch(&app, &cfg, &map, &mut cooldown_until);
 
             tick = tick.wrapping_add(1);
             tokio::time::sleep(std::time::Duration::from_secs(interval)).await;

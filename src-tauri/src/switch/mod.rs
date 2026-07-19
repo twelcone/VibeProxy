@@ -31,17 +31,18 @@ pub fn set_active_config_dir(config_dir: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Open Terminal running `claude` scoped to a profile (macOS). Powers the "relaunch" action
-/// and onboarding (Phase 3).
-#[allow(dead_code)]
+/// Open Terminal running `claude` scoped to a profile (macOS). Powers the "relaunch" action.
+/// The default account must run with `CLAUDE_CONFIG_DIR` UNSET (setting it to `~/.claude` breaks it).
 pub fn launch_claude(config_dir: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let script = format!(
-            "tell application \"Terminal\" to do script \"export CLAUDE_CONFIG_DIR={} && claude\"",
-            config_dir.display()
-        );
+        let cmd = if crate::profile::paths::is_default(config_dir) {
+            "claude".to_string()
+        } else {
+            format!("export CLAUDE_CONFIG_DIR={} && claude", config_dir.display())
+        };
+        let script = format!("tell application \"Terminal\" to do script \"{cmd}\"");
         Command::new("osascript").args(["-e", &script]).spawn()?;
     }
     #[cfg(not(target_os = "macos"))]

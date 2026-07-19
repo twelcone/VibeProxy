@@ -1,6 +1,7 @@
 //! VibeProxy — menubar app to switch between multiple Claude Code accounts.
 //! Phase 2: adopt existing logins, read identity, and switch the active profile by real path.
 
+mod autoswitch;
 mod keychain;
 mod onboarding;
 mod platform;
@@ -112,6 +113,21 @@ fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
     activate(&app, &id)
 }
 
+/// Open a Terminal running `claude` on the active profile (so a just-switched account takes effect
+/// immediately instead of waiting for the user to restart).
+#[tauri::command]
+fn relaunch_claude() -> Result<(), String> {
+    let cfg = store::load();
+    let dir = cfg
+        .active_profile_id
+        .and_then(|id| cfg.profiles.into_iter().find(|p| p.id == id))
+        .map(|p| p.config_dir);
+    match dir {
+        Some(d) => switch::launch_claude(Path::new(&d)).map_err(|e| e.to_string()),
+        None => Err("no active profile".to_string()),
+    }
+}
+
 /// Remove a profile from VibeProxy (does not touch its Keychain item or config dir).
 #[tauri::command]
 fn delete_profile(app: AppHandle, id: String) -> Result<(), String> {
@@ -212,6 +228,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(usage_state.clone())
         .invoke_handler(tauri::generate_handler![
             list_profiles,
@@ -223,6 +240,7 @@ pub fn run() {
             check_login_status,
             cancel_add_profile,
             set_active_profile,
+            relaunch_claude,
             delete_profile,
             reorder_profiles,
             refresh_profile_meta,
