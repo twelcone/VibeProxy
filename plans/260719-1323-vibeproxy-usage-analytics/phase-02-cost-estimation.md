@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Cost Estimation"
-status: pending
+status: completed
 priority: P1
 effort: "1-2d"
 dependencies: [1]

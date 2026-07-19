@@ -1,0 +1,10 @@
+{
+  "note": "ESTIMATE. USD per 1,000,000 tokens. Verify against the current Anthropic pricing page; these are approximate and used to show API-equivalent value, not actual subscription spend.",
+  "updatedAt": "2026-07-19",
+  "perMillionTokens": {
+    "claude-opus-4-8":            { "input": 15,  "output": 75,  "cacheWrite": 18.75, "cacheRead": 1.5 },
+    "claude-fable-5":             { "input": 5,   "output": 25,  "cacheWrite": 6.25,  "cacheRead": 0.5 },
+    "claude-sonnet-5":            { "input": 3,   "output": 15,  "cacheWrite": 3.75,  "cacheRead": 0.3 },
+    "claude-haiku-4-5":           { "input": 1,   "output": 5,   "cacheWrite": 1.25,  "cacheRead": 0.1 }
+  }
+}

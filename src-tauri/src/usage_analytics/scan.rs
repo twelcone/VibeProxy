@@ -1,5 +1,6 @@
 //! Resolve each account's log root, stream the JSONL, dedupe, and aggregate.
 
+use super::cost::Prices;
 use super::model::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -47,7 +48,7 @@ pub fn scan(range: &Option<Range>) -> Analytics {
             }
         }
     }
-    acc.finish(range.clone())
+    acc.finish(range.clone(), Some(&Prices::load()))
 }
 
 /// Recursively collect `*.jsonl` under a projects dir.
@@ -109,6 +110,9 @@ pub struct Accumulator {
     per_day: HashMap<String, Tokens>,
     per_project: HashMap<String, Tokens>,
     per_model_day: HashMap<(String, String), Tokens>,
+    // Model splits so per-account/-project value can be priced per model (rates are per model).
+    per_account_model: HashMap<(String, String), Tokens>,
+    per_project_model: HashMap<(String, String), Tokens>,
 }
 
 impl Accumulator {
@@ -155,42 +159,88 @@ impl Accumulator {
         add(&mut self.per_model, model.clone(), &tokens);
         self.per_day.entry(date.clone()).or_default().add(&tokens);
         self.per_project.entry(project.to_string()).or_default().add(&tokens);
-        self.per_model_day.entry((date, model)).or_default().add(&tokens);
+        self.per_model_day.entry((date, model.clone())).or_default().add(&tokens);
+        self.per_account_model.entry((account.to_string(), model.clone())).or_default().add(&tokens);
+        self.per_project_model.entry((project.to_string(), model)).or_default().add(&tokens);
     }
 
-    pub fn finish(self, range: Option<Range>) -> Analytics {
-        let mut per_account: Vec<AccountRow> = self
-            .per_account
-            .into_iter()
-            .map(|(account, (tokens, messages))| AccountRow { account, tokens, messages })
-            .collect();
-        per_account.sort_by(|a, b| b.tokens.total().cmp(&a.tokens.total()));
+    pub fn finish(self, range: Option<Range>, prices: Option<&Prices>) -> Analytics {
+        // Group each split map into dim -> [(model, tokens)] so a dimension's value is the sum of
+        // its models priced at their own rates (an unpriced model contributes 0 to the value).
+        let group = |src: &HashMap<(String, String), Tokens>| -> HashMap<String, Vec<(String, Tokens)>> {
+            let mut out: HashMap<String, Vec<(String, Tokens)>> = HashMap::new();
+            for ((dim, model), t) in src {
+                out.entry(dim.clone()).or_default().push((model.clone(), t.clone()));
+            }
+            out
+        };
+        let acct_models = group(&self.per_account_model);
+        let proj_models = group(&self.per_project_model);
+        let day_models = group(&self.per_model_day);
+        let vsum = |models: Option<&Vec<(String, Tokens)>>| -> Option<f64> {
+            prices.map(|p| {
+                models
+                    .map(|v| v.iter().map(|(m, t)| p.value(m, t).unwrap_or(0.0)).sum())
+                    .unwrap_or(0.0)
+            })
+        };
 
+        let mut total_value = 0.0;
+        let mut unpriced = std::collections::BTreeSet::new();
         let mut per_model: Vec<ModelRow> = self
             .per_model
             .into_iter()
-            .map(|(model, (tokens, messages))| ModelRow { model, tokens, messages })
+            .map(|(model, (tokens, messages))| {
+                let value = prices.and_then(|p| p.value(&model, &tokens));
+                match value {
+                    Some(v) => total_value += v,
+                    None if prices.is_some() && tokens.total() > 0 => {
+                        unpriced.insert(model.clone());
+                    }
+                    None => {}
+                }
+                ModelRow { model, tokens, messages, value }
+            })
             .collect();
         per_model.sort_by(|a, b| b.tokens.total().cmp(&a.tokens.total()));
+
+        let mut per_account: Vec<AccountRow> = self
+            .per_account
+            .into_iter()
+            .map(|(account, (tokens, messages))| {
+                let value = vsum(acct_models.get(&account));
+                AccountRow { account, tokens, messages, value }
+            })
+            .collect();
+        per_account.sort_by(|a, b| b.tokens.total().cmp(&a.tokens.total()));
 
         let mut per_day: Vec<DayRow> = self
             .per_day
             .into_iter()
-            .map(|(date, tokens)| DayRow { date, tokens })
+            .map(|(date, tokens)| {
+                let value = vsum(day_models.get(&date));
+                DayRow { date, tokens, value }
+            })
             .collect();
         per_day.sort_by(|a, b| a.date.cmp(&b.date));
 
         let mut per_project: Vec<ProjectRow> = self
             .per_project
             .into_iter()
-            .map(|(project, tokens)| ProjectRow { project, tokens })
+            .map(|(project, tokens)| {
+                let value = vsum(proj_models.get(&project));
+                ProjectRow { project, tokens, value }
+            })
             .collect();
         per_project.sort_by(|a, b| b.tokens.total().cmp(&a.tokens.total()));
 
         let mut per_model_per_day: Vec<ModelDayRow> = self
             .per_model_day
             .into_iter()
-            .map(|((date, model), tokens)| ModelDayRow { date, model, tokens })
+            .map(|((date, model), tokens)| {
+                let value = prices.and_then(|p| p.value(&model, &tokens));
+                ModelDayRow { date, model, tokens, value }
+            })
             .collect();
         per_model_per_day.sort_by(|a, b| a.date.cmp(&b.date).then(a.model.cmp(&b.model)));
 
@@ -203,6 +253,9 @@ impl Accumulator {
             per_project,
             per_model_per_day,
             range,
+            total_value,
+            priced_as_of: prices.map(|p| p.updated_at.clone()).unwrap_or_default(),
+            unpriced_models: unpriced.into_iter().collect(),
         }
     }
 }
@@ -229,9 +282,13 @@ mod tests {
         acc.ingest_line(&line("r1", "claude-opus-4-8", "2026-07-02T07:00:00.000Z", 100, 10, 50, 20), "Main", "proj-a", &None);
         acc.ingest_line(&line("r1", "claude-opus-4-8", "2026-07-02T07:00:00.000Z", 100, 10, 50, 20), "Main", "proj-a", &None); // dup requestId
         acc.ingest_line(&line("r2", "claude-fable-5", "2026-07-03T07:00:00.000Z", 200, 20, 0, 0), "Work", "proj-b", &None);
-        let a = acc.finish(None);
+        let prices = super::super::cost::Prices::load();
+        let a = acc.finish(None, Some(&prices));
 
         assert_eq!(a.message_count, 2, "duplicate requestId counted once");
+        assert!(a.total_value > 0.0, "priced models produce value");
+        assert!(a.per_account.iter().all(|r| r.value.is_some()), "per-account value computed");
+        assert!(a.unpriced_models.is_empty(), "both fixture models are priced");
         assert_eq!(a.totals.input, 300);
         assert_eq!(a.totals.output, 30);
         assert_eq!(a.totals.cache_write, 50);
@@ -249,7 +306,7 @@ mod tests {
         acc.ingest_line("not json at all", "Main", "p", &None);
         acc.ingest_line(r#"{"type":"assistant","message":{"model":"x"}}"#, "Main", "p", &None); // no usage
         acc.ingest_line("", "Main", "p", &None);
-        let a = acc.finish(None);
+        let a = acc.finish(None, None);
         assert_eq!(a.message_count, 0);
         assert_eq!(a.totals.total(), 0);
     }
@@ -261,11 +318,11 @@ mod tests {
         let l = r#"{"type":"assistant","requestId":"r9","timestamp":"2026-07-10T00:00:00.000Z","message":{"model":"m","usage":{"input_tokens":5,"output_tokens":1,"service_tier":"standard","iterations":[1,2]}}}"#;
         let range = Some(Range { from: Some("2026-07-01".into()), to: Some("2026-07-05".into()) });
         acc.ingest_line(l, "Main", "p", &range); // 07-10 is outside 01..05
-        assert_eq!(acc.finish(range).message_count, 0);
+        assert_eq!(acc.finish(range, None).message_count, 0);
 
         let mut acc2 = Accumulator::default();
         let range2 = Some(Range { from: Some("2026-07-01".into()), to: Some("2026-07-31".into()) });
         acc2.ingest_line(l, "Main", "p", &range2);
-        assert_eq!(acc2.finish(range2).totals.input, 5);
+        assert_eq!(acc2.finish(range2, None).totals.input, 5);
     }
 }

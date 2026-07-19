@@ -30,6 +30,9 @@ pub struct AccountRow {
     pub account: String,
     pub tokens: Tokens,
     pub messages: u64,
+    /// API-equivalent value (USD), or None if the model(s) are unpriced.
+    #[serde(default)]
+    pub value: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,6 +41,9 @@ pub struct ModelRow {
     pub model: String,
     pub tokens: Tokens,
     pub messages: u64,
+    /// API-equivalent value (USD), or None if the model(s) are unpriced.
+    #[serde(default)]
+    pub value: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -45,6 +51,8 @@ pub struct ModelRow {
 pub struct DayRow {
     pub date: String, // YYYY-MM-DD (local)
     pub tokens: Tokens,
+    #[serde(default)]
+    pub value: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +60,8 @@ pub struct DayRow {
 pub struct ProjectRow {
     pub project: String,
     pub tokens: Tokens,
+    #[serde(default)]
+    pub value: Option<f64>,
 }
 
 /// One (day, model) bucket for the multi-series trend chart (Phase 4).
@@ -61,6 +71,8 @@ pub struct ModelDayRow {
     pub date: String,
     pub model: String,
     pub tokens: Tokens,
+    #[serde(default)]
+    pub value: Option<f64>,
 }
 
 /// Inclusive local-date filter (YYYY-MM-DD). Both bounds optional.
@@ -83,4 +95,13 @@ pub struct Analytics {
     pub per_project: Vec<ProjectRow>,
     pub per_model_per_day: Vec<ModelDayRow>,
     pub range: Option<Range>,
+    /// Total API-equivalent value (USD) across priced models.
+    #[serde(default)]
+    pub total_value: f64,
+    /// Date the bundled pricing was last updated (shown as "priced as of").
+    #[serde(default)]
+    pub priced_as_of: String,
+    /// Model ids that had tokens but no price (UI disclaimer).
+    #[serde(default)]
+    pub unpriced_models: Vec<String>,
 }
