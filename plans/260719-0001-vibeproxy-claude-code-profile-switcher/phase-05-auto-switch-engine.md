@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Auto-Switch Engine"
-status: pending
+status: completed
 priority: P1
 effort: "2-3d"
 dependencies: [3, 4]
