@@ -30,6 +30,25 @@ fn get_settings() -> profile::Settings {
     store::load().settings
 }
 
+/// Update settings (validated + persisted). The poller picks up threshold/interval/cooldown on its
+/// next tick; launch-at-login is applied immediately.
+#[tauri::command]
+fn set_settings(app: AppHandle, mut settings: profile::Settings) -> Result<profile::Settings, String> {
+    settings.threshold_pct = settings.threshold_pct.clamp(50, 100);
+    settings.poll_interval_secs = settings.poll_interval_secs.max(60);
+    settings.cooldown_secs = settings.cooldown_secs.max(30);
+    store::set_settings(settings.clone()).map_err(|e| e.to_string())?;
+
+    use tauri_plugin_autostart::ManagerExt;
+    let autostart = app.autolaunch();
+    let _ = if settings.launch_at_login {
+        autostart.enable()
+    } else {
+        autostart.disable()
+    };
+    Ok(settings)
+}
+
 /// Id of the active profile, if any.
 #[tauri::command]
 fn get_active_profile_id() -> Option<String> {
@@ -229,10 +248,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(usage_state.clone())
         .invoke_handler(tauri::generate_handler![
             list_profiles,
             get_settings,
+            set_settings,
             get_active_profile_id,
             get_usage,
             adopt_profile,

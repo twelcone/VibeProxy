@@ -176,6 +176,11 @@ pub fn set_active_profile_id(id: &str) -> std::io::Result<()> {
     with_config(|c| c.active_profile_id = Some(id.to_string()))
 }
 
+/// Replace settings and persist. The poller reads settings each tick, so changes hot-apply.
+pub fn set_settings(s: Settings) -> std::io::Result<()> {
+    with_config(|c| c.settings = s)
+}
+
 /// Reorder profiles to match `order` (ids); unknown/missing ids fall to the end. Renumbers priority.
 pub fn reorder(order: &[String]) -> std::io::Result<()> {
     with_config(|c| {

@@ -12,6 +12,10 @@
     weeklyPct: number | null; weeklyResetsAt: string | null; status: string;
   };
   type AddState = { configDir: string; label: string; message: string; error: boolean };
+  type Settings = {
+    autoSwitchEnabled: boolean; thresholdPct: number; pollIntervalSecs: number;
+    cooldownSecs: number; launchAtLogin: boolean;
+  };
 
   let profiles = $state<Profile[]>([]);
   let activeId = $state<string | null>(null);
@@ -23,6 +27,16 @@
   let banner = $state("");
 
   let notice = $state("");
+  let settings = $state<Settings | null>(null);
+  let activity = $state<string[]>([]);
+  let copied = $state(false);
+  const INTEGRATION_SNIPPET =
+    `_vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR`;
+
+  function logActivity(msg: string) {
+    const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    activity = [`${t} · ${msg}`, ...activity].slice(0, 12);
+  }
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let pollAttempts = 0;
   const MAX_POLL_ATTEMPTS = 150; // ~5 min at 2s
@@ -33,6 +47,17 @@
     activeId = await invoke<string | null>("get_active_profile_id");
     const u = await invoke<Usage[]>("get_usage");
     usage = Object.fromEntries(u.map((x) => [x.profileId, x]));
+    settings = await invoke<Settings>("get_settings");
+  }
+
+  async function saveSettings() {
+    if (!settings) return;
+    try { settings = await invoke<Settings>("set_settings", { settings }); }
+    catch (e) { banner = `${e}`; }
+  }
+  async function copySnippet() {
+    try { await navigator.clipboard.writeText(INTEGRATION_SNIPPET); copied = true; setTimeout(() => (copied = false), 1500); }
+    catch { /* clipboard unavailable */ }
   }
 
   onMount(async () => {
@@ -47,6 +72,7 @@
     unlisteners.push(
       await listen<{ from: string; to: string; pct: number }>("auto-switched", async (e) => {
         notice = `Auto-switched to ${e.payload.to} — ${e.payload.from} hit ${e.payload.pct}%.`;
+        logActivity(`Auto-switched to ${e.payload.to} (${e.payload.from} hit ${e.payload.pct}%)`);
         await refresh();
       }),
     );
@@ -73,6 +99,8 @@
 
   async function switchTo(id: string) {
     await invoke("set_active_profile", { id });
+    const p = profiles.find((x) => x.id === id);
+    if (p) logActivity(`Switched to ${p.label} (manual)`);
     await refresh();
   }
   async function relaunch() {
@@ -97,23 +125,25 @@
     }
   }
   async function pollLogin() {
-    if (!add) return;
+    const a = add;
+    if (!a) return;
     if (++pollAttempts > MAX_POLL_ATTEMPTS) {
       stopPoll();
-      await invoke("cancel_add_profile", { configDir: add.configDir });
-      add = { ...add, message: "Login timed out. Close this and try again.", error: true };
+      await invoke("cancel_add_profile", { configDir: a.configDir });
+      add = { configDir: a.configDir, label: a.label, message: "Login timed out. Close this and try again.", error: true };
       return;
     }
     try {
-      const status = await invoke<{ loggedIn: boolean; email: string | null }>("check_login_status", { configDir: add.configDir });
+      const status = await invoke<{ loggedIn: boolean; email: string | null }>("check_login_status", { configDir: a.configDir });
       if (status.loggedIn) {
         stopPoll();
         try {
-          await invoke("adopt_profile", { label: add.label, configDir: add.configDir });
+          await invoke("adopt_profile", { label: a.label, configDir: a.configDir });
+          logActivity(`Added ${a.label}`);
           add = null;
           await refresh();
         } catch (e) {
-          add = { ...add, message: `${e}`, error: true };
+          add = { configDir: a.configDir, label: a.label, message: `${e}`, error: true };
         }
       }
     } catch { /* still waiting for login — keep polling */ }
@@ -211,6 +241,45 @@
       </details>
     {/if}
   </section>
+
+  {#if settings}
+    <section>
+      <h2>Automatic switching</h2>
+      <div class="settings">
+        <label class="set">
+          <span><b>Auto-switch on quota</b><small>Move to the freshest account before this one runs out</small></span>
+          <input type="checkbox" bind:checked={settings.autoSwitchEnabled} onchange={saveSettings} />
+        </label>
+        <label class="set">
+          <span><b>Switch threshold</b><small>Trigger when 5-hour or weekly usage crosses this</small></span>
+          <span class="ctl"><input type="range" min="50" max="100" bind:value={settings.thresholdPct} onchange={saveSettings} /><em>{settings.thresholdPct}%</em></span>
+        </label>
+        <label class="set">
+          <span><b>Refresh usage every</b><small>How often to poll each account</small></span>
+          <span class="ctl"><input class="num" type="number" min="60" step="30" bind:value={settings.pollIntervalSecs} onchange={saveSettings} /><em>s</em></span>
+        </label>
+        <label class="set">
+          <span><b>Launch at login</b></span>
+          <input type="checkbox" bind:checked={settings.launchAtLogin} onchange={saveSettings} />
+        </label>
+      </div>
+    </section>
+  {/if}
+
+  <section>
+    <h2>Claude Code integration</h2>
+    <p class="hint2">Add this to your shell profile (e.g. <code>~/.zshrc</code>) so new terminals use the active account:</p>
+    <div class="snippet"><code>{INTEGRATION_SNIPPET}</code><button class="btn small" onclick={copySnippet}>{copied ? "Copied ✓" : "Copy"}</button></div>
+  </section>
+
+  {#if activity.length}
+    <section>
+      <h2>Activity</h2>
+      <ul class="activity">
+        {#each activity as a}<li>{a}</li>{/each}
+      </ul>
+    </section>
+  {/if}
 </main>
 
 <style>
@@ -266,6 +335,26 @@
   .import { margin-top: 10px; }
   .import summary { font-size: .8rem; color: var(--ink-soft); cursor: pointer; }
   .import .row { margin-top: 8px; }
+
+  .settings { border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
+  .set { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-bottom: 1px solid var(--hair); cursor: pointer; }
+  .set:last-child { border-bottom: 0; }
+  .set > span:first-child { display: flex; flex-direction: column; }
+  .set b { font-size: .9rem; font-weight: 600; }
+  .set small { font-size: .75rem; color: var(--ink-soft); }
+  .set .ctl { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .set input[type="checkbox"] { margin-left: auto; width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .set input[type="range"] { accent-color: var(--accent); width: 120px; }
+  .set .num { width: 64px; font: inherit; padding: 4px 6px; border: 1px solid var(--hair); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  .set em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: .8rem; min-width: 34px; text-align: right; }
+  .hint2 { font-size: .8rem; color: var(--ink-soft); margin: 0 0 6px; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .85em; background: var(--panel-3); padding: 1px 4px; border-radius: 4px; }
+  .snippet { display: flex; align-items: center; gap: 8px; background: var(--panel-3); border-radius: 8px; padding: 8px 10px; }
+  .snippet code { font-size: .72rem; color: var(--ink-soft); overflow-x: auto; white-space: nowrap; flex: 1; background: none; padding: 0; }
+  .btn.small { padding: 4px 9px; font-size: .72rem; }
+  .activity { list-style: none; margin: 0; padding: 0; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
+  .activity li { padding: 7px 12px; border-bottom: 1px solid var(--hair); font-size: .8rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .activity li:last-child { border-bottom: 0; }
 
   @media (prefers-color-scheme: dark) {
     :root {
