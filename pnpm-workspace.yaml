@@ -1,2 +1,6 @@
+# Single-package repo. `packages` is required so pnpm (and setup-node's cache) treats the root as
+# the package; `allowBuilds` lets esbuild run its native-binary build script.
+packages:
+  - "."
 allowBuilds:
   esbuild: true
