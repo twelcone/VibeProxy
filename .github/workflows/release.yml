@@ -1,0 +1,43 @@
+name: release
+
+# Tag a version (e.g. `git tag v0.1.0 && git push --tags`) to build an unsigned macOS
+# bundle and attach it to a draft GitHub Release.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build and release (unsigned)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "VibeProxy ${{ github.ref_name }}"
+          releaseBody: |
+            Unsigned build. First launch: System Settings → Privacy & Security → **Open Anyway**
+            (or `xattr -dr com.apple.quarantine /Applications/VibeProxy.app`). See the README.
+          releaseDraft: true
+          prerelease: false

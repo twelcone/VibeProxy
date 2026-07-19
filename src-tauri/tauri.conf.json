@@ -26,6 +26,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Productivity",
+    "copyright": "© 2026 twelcone. MIT licensed.",
+    "shortDescription": "Switch between Claude Code accounts from the menubar.",
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
