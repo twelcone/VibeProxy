@@ -562,7 +562,7 @@
   .panel {
     background: var(--panel-2);
     border: 1px solid var(--hair);
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 3px 13px;
   }
   /* Divider between bar rows lives here: BarRow instances are siblings only from the parent's view. */

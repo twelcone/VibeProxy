@@ -503,7 +503,7 @@
   .notice .x { margin-left: auto; background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
 
   /* Filled surface rather than outline-only — an unfilled box reads as a placeholder. */
-  .card { background: var(--panel-2); border: 1px solid var(--hair); border-radius: 12px; padding: 11px 12px; margin-bottom: 8px;
+  .card { background: var(--panel-2); border: 1px solid var(--hair); border-radius: 10px; padding: 11px 12px; margin-bottom: 8px;
     display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; }
   .card.active { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
   .name { font-weight: 600; font-size: .95rem; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }

@@ -41,7 +41,7 @@
        wireframe placeholder next to real content. */
     background: var(--panel-2);
     border: 1px solid var(--hair);
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;

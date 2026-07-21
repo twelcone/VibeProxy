@@ -25,10 +25,22 @@
   } = $props();
 
   const widthPct = $derived(max > 0 ? Math.min(100, Math.max((value / max) * 100, 0)) : 0);
+  /**
+   * A nonzero value must always be visible. Ranked lists routinely span three orders of magnitude —
+   * 942M against 3.4M is 0.36% of the row, which renders as nothing and reads as "no data" rather
+   * than "a small amount". The floor is applied in pixels so it holds at any panel width.
+   */
+  const hasValue = $derived(value > 0);
 </script>
 
 <div class="row" {title}>
-  <div class="fill" style:width={`${widthPct}%`} style:background={color} aria-hidden="true"></div>
+  <div
+    class="fill"
+    class:has-value={hasValue}
+    style:width={`${widthPct}%`}
+    style:background={color}
+    aria-hidden="true"
+  ></div>
   <span class="label">{label}</span>
   {#if secondaryText}<span class="secondary">{secondaryText}</span>{/if}
   <span class="value">{valueText}</span>
@@ -54,6 +66,9 @@
     inset: 0 auto 0 0;
     opacity: 0.28;
     transition: width 0.3s ease-out;
+  }
+  .fill.has-value {
+    min-width: 10px;
   }
   .label,
   .value,

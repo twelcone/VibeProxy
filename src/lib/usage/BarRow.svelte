@@ -27,7 +27,9 @@
     children?: import("svelte").Snippet;
   } = $props();
 
-  const widthPct = $derived(max > 0 ? Math.max((value / max) * 100, value > 0 ? 1.5 : 0) : 0);
+  const widthPct = $derived(max > 0 ? (value / max) * 100 : 0);
+  /** Same floor as RowBar: a percentage minimum scales with width, a pixel one always holds. */
+  const hasValue = $derived(value > 0);
 </script>
 
 <div class="row">
@@ -39,7 +41,7 @@
   </div>
   {#if !soloRow}
     <div class="track">
-      <i style:width={`${widthPct}%`} style:background={color}></i>
+      <i class:has-value={hasValue} style:width={`${widthPct}%`} style:background={color}></i>
     </div>
   {/if}
   {#if children}<div class="extra">{@render children()}</div>{/if}
@@ -93,6 +95,9 @@
     height: 100%;
     border-radius: 3px;
     transition: width 0.3s ease-out;
+  }
+  .track > i.has-value {
+    min-width: 10px;
   }
   .extra {
     margin-top: 6px;

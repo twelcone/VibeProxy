@@ -19,12 +19,12 @@
      the good/warn/crit scale (reserved for quota severity) — reusing either would make a chart color
      look like state. Six hues, each ≥4.5:1 on --panel in both themes, always paired with a direct
      label so meaning never rests on hue alone. */
-  --series-1: #16706a;
-  --series-2: #4b5bb5;
-  --series-3: #8a4a86;
-  --series-4: #5f6b28;
-  --series-5: #b03a5b;
-  --series-6: #46647d;
+  --series-1: #0f7a72;
+  --series-2: #3d4fd4;
+  --series-3: #9c3f96;
+  --series-4: #5f7312;
+  --series-5: #c62f5c;
+  --series-6: #2f6f92;
 
   color: var(--ink);
   background: var(--panel);
@@ -48,11 +48,11 @@
     --bar: #3a352f;
 
     --series-1: #3fc2b8;
-    --series-2: #8b97e0;
-    --series-3: #c187bd;
-    --series-4: #a8b95c;
-    --series-5: #e0748f;
-    --series-6: #86a6bf;
+    --series-2: #8f9cff;
+    --series-3: #dc8fd2;
+    --series-4: #b9cf52;
+    --series-5: #ff7d9c;
+    --series-6: #7fbcdd;
   }
 }
 

@@ -191,7 +191,7 @@
   .chart {
     background: var(--panel-2);
     border: 1px solid var(--hair);
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 11px 13px 6px;
   }
   .head {
