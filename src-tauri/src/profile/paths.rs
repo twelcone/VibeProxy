@@ -54,3 +54,43 @@ pub fn profiles_dir() -> PathBuf {
 pub fn swap_journal_file() -> PathBuf {
     vibeproxy_dir().join("swaps.jsonl")
 }
+
+/// `set_var` is process-global while Rust runs tests on parallel threads, so every test that
+/// touches `VIBEPROXY_DIR` must take THIS lock — one per process, not one per module. Two separate
+/// mutexes guarding the same global provide no mutual exclusion at all.
+#[cfg(test)]
+pub(crate) static ENV_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The default account is load-bearing: Claude only reads its bare Keychain item when
+    /// `CLAUDE_CONFIG_DIR` is unset, so misidentifying it sends the switch down the wrong path.
+    #[test]
+    fn only_the_real_default_dir_is_treated_as_default() {
+        let home = dirs::home_dir().expect("home dir");
+        assert!(is_default(&home.join(".claude")));
+        assert!(!is_default(&home.join(".claude-other")));
+        assert!(!is_default(&home.join(".vibeproxy/profiles/p_1")));
+        assert!(!is_default(Path::new("/tmp/.claude")), "same leaf, different parent");
+    }
+
+    #[test]
+    fn vibeproxy_dir_override_and_fallback() {
+        let _guard = ENV_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+
+        let tmp = std::env::temp_dir().join("vp-paths-test");
+        std::env::set_var("VIBEPROXY_DIR", &tmp);
+        assert_eq!(vibeproxy_dir(), tmp);
+        assert_eq!(config_path(), tmp.join("config.json"));
+        assert_eq!(swap_journal_file(), tmp.join("swaps.jsonl"));
+
+        // An empty override is treated as unset, not as the filesystem root.
+        std::env::set_var("VIBEPROXY_DIR", "");
+        assert!(vibeproxy_dir().ends_with(".vibeproxy"));
+
+        std::env::remove_var("VIBEPROXY_DIR");
+        assert!(vibeproxy_dir().ends_with(".vibeproxy"));
+    }
+}

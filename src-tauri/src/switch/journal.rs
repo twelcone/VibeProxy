@@ -193,6 +193,8 @@ mod tests {
     #[test]
     #[ignore = "writes a journal file to a temp VIBEPROXY_DIR"]
     fn journal_e2e_append_reload_resolve() {
+        // Shared process-wide guard — this test mutates VIBEPROXY_DIR. See `paths::ENV_SERIAL`.
+        let _guard = paths::ENV_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = std::env::temp_dir().join(format!("vp-journal-e2e-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::env::set_var("VIBEPROXY_DIR", &tmp);

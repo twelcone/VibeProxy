@@ -236,3 +236,56 @@ fn draw_meter(pct: f32) -> Image<'static> {
 
     Image::new_owned(buf, w, h)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: `clamp(min, max)` aborts when min exceeds max, which happened whenever the fill
+    /// pill was narrower than its own corner diameter — every quota reading under roughly 20%.
+    #[test]
+    fn meter_renders_across_the_whole_range_without_panicking() {
+        for pct in 0..=100 {
+            let img = draw_meter(pct as f32);
+            assert!(img.width() > 0 && img.height() > 0, "empty image at {pct}%");
+        }
+        // Values outside the nominal range are clamped, not fatal.
+        for pct in [-5.0f32, 0.4, 101.0, f32::MAX] {
+            let _ = draw_meter(pct);
+        }
+    }
+
+    #[test]
+    fn meter_fill_grows_with_utilisation() {
+        let opaque = |pct: f32| {
+            let img = draw_meter(pct);
+            img.rgba().chunks_exact(4).filter(|px| px[3] > 200).count()
+        };
+        let (low, mid, high) = (opaque(10.0), opaque(50.0), opaque(95.0));
+        assert!(low < mid && mid < high, "fill must grow: {low} < {mid} < {high}");
+    }
+
+    #[test]
+    fn rrect_distance_is_negative_inside_and_positive_outside() {
+        // 20x10 pill, radius 5, centred at (10,5)
+        let d = |x, y| rrect_distance(x, y, 0.0, 0.0, 20.0, 10.0, 5.0);
+        assert!(d(10.0, 5.0) < 0.0, "centre is inside");
+        assert!(d(-5.0, 5.0) > 0.0, "left of the shape is outside");
+        assert!(d(0.5, 0.5) > 0.0, "corner is cut away by the radius");
+    }
+
+    /// The degenerate case that caused the panic: a rect narrower than its corner diameter.
+    #[test]
+    fn rrect_distance_survives_a_rect_smaller_than_its_radius() {
+        let d = rrect_distance(5.0, 5.0, 0.0, 0.0, 4.0, 4.0, 8.0);
+        assert!(d.is_finite(), "degenerate rect must not produce NaN");
+    }
+
+    #[test]
+    fn severity_matches_the_design_system_thresholds() {
+        assert_eq!(severity_rgb(0.0), severity_rgb(69.9), "both good");
+        assert_ne!(severity_rgb(69.9), severity_rgb(70.0), "warn boundary");
+        assert_ne!(severity_rgb(89.9), severity_rgb(90.0), "crit boundary");
+        assert_eq!(severity_rgb(90.0), severity_rgb(100.0), "both crit");
+    }
+}

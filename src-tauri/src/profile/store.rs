@@ -231,12 +231,10 @@ mod tests {
 #[cfg(test)]
 mod io_tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static SERIAL: Mutex<()> = Mutex::new(());
 
     fn with_temp(f: impl FnOnce()) {
-        let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        // Shared process-wide guard — see `paths::ENV_SERIAL`.
+        let _g = paths::ENV_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = std::env::temp_dir().join(new_id());
         std::env::set_var("VIBEPROXY_DIR", &tmp);
         ensure_initialized().unwrap();
