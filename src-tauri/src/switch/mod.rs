@@ -5,6 +5,8 @@
 //! `~/.vibeproxy/active-path`, which the user's shell reads into CLAUDE_CONFIG_DIR.
 
 pub mod journal;
+pub mod hotswap;
+pub mod locks;
 
 use crate::profile::paths;
 use std::{fs, io::Write, path::Path};

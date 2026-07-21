@@ -1,7 +1,7 @@
 ---
 title: "In-Session Account Switching (hot-swap + attribution boundaries)"
 description: "Switch the account of a RUNNING Claude Code session by swapping credentials in place, and keep per-account analytics correct by recording swap boundaries and attributing transcripts by timestamp."
-status: pending
+status: complete
 priority: P1
 effort: "~1 week"
 tags: [vibeproxy, switching, keychain, analytics]
@@ -54,9 +54,9 @@ With no swap records, the timeline is a single interval and behaviour is identic
 
 | # | Phase | Status | Depends on |
 |---|-------|--------|-----------|
-| 1 | [Swap journal + timeline attribution](./phase-01-swap-journal-attribution.md) | Pending | — |
-| 2 | [Credential swap (macOS Keychain + lockfiles)](./phase-02-credential-swap.md) | Pending | 1 |
-| 3 | [Wire auto-switch + UI affordance](./phase-03-wire-autoswitch-ui.md) | Pending | 1, 2 |
+| 1 | [Swap journal + timeline attribution](./phase-01-swap-journal-attribution.md) | ✅ Done | — |
+| 2 | [Credential swap (macOS Keychain + lockfiles)](./phase-02-credential-swap.md) | ✅ Done | 1 |
+| 3 | [Wire auto-switch + UI affordance](./phase-03-wire-autoswitch-ui.md) | ✅ Done | 1, 2 |
 
 Phase 1 first and deliberately: attribution must be correct **before** anything can corrupt it. It
 ships as a no-op on today's data, so it can be verified against known-good numbers.

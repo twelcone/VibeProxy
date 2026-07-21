@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Credential swap (macOS Keychain + lockfiles)"
-status: pending
+status: done
 priority: P1
 effort: "2-3d"
 dependencies: [1]

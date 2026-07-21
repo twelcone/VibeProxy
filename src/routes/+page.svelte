@@ -19,7 +19,7 @@
   type AddState = { configDir: string; label: string; message: string; error: boolean };
   type Settings = {
     autoSwitchEnabled: boolean; thresholdPct: number; pollIntervalSecs: number;
-    cooldownSecs: number; launchAtLogin: boolean;
+    cooldownSecs: number; launchAtLogin: boolean; hotSwapEnabled: boolean;
   };
 
   let profiles = $state<Profile[]>([]);
@@ -398,6 +398,17 @@
         <label class="set">
           <span><b>Refresh usage every</b><small>How often to poll each account</small></span>
           <span class="ctl"><input class="num" type="number" min="60" step="30" bind:value={settings.pollIntervalSecs} onchange={saveSettings} /><em>s</em></span>
+        </label>
+        <label class="set">
+          <span>
+            <b>Switch running sessions too</b>
+            <small>
+              Moves credentials into the session's own folder so an open terminal switches without
+              relaunching. VibeProxy will write to your Keychain, and that session's transcripts are
+              re-attributed by time rather than by folder.
+            </small>
+          </span>
+          <input type="checkbox" bind:checked={settings.hotSwapEnabled} onchange={saveSettings} />
         </label>
         <label class="set">
           <span><b>Launch at login</b></span>

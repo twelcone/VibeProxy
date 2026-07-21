@@ -187,6 +187,52 @@ mod tests {
         assert_eq!(t.resolve(parse_instant("2026-07-15T00:00:00Z").unwrap()), "Personal");
     }
 
+    /// End-to-end through the real files: append boundaries, reload them, resolve. Uses
+    /// VIBEPROXY_DIR so it never touches the user's actual journal.
+    /// Run with `cargo test journal_e2e -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "writes a journal file to a temp VIBEPROXY_DIR"]
+    fn journal_e2e_append_reload_resolve() {
+        let tmp = std::env::temp_dir().join(format!("vp-journal-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("VIBEPROXY_DIR", &tmp);
+
+        let dir = "/tmp/vp-e2e-profile-work";
+        for (at, label) in [("2026-07-15T00:00:00Z", "Personal"), ("2026-07-18T00:00:00Z", "Work")] {
+            append(&Boundary {
+                at: at.into(),
+                config_dir: dir.into(),
+                account_id: "p_test".into(),
+                account_label: label.into(),
+            })
+            .expect("append");
+        }
+        // A corrupt trailing line must not take the whole load down.
+        {
+            use std::io::Write as _;
+            let mut f = std::fs::OpenOptions::new().append(true).open(paths::swap_journal_file()).unwrap();
+            f.write_all(b"{ this is not json\n").unwrap();
+        }
+
+        let owners = HashMap::from([(dir.to_string(), "Work".to_string())]);
+        let timelines = load_timelines(&owners);
+        let t = timelines.get(dir).expect("timeline for dir");
+        assert!(!t.is_static(), "boundaries were loaded");
+
+        let at = |s: &str| parse_instant(s).unwrap();
+        assert_eq!(t.resolve(at("2026-07-10T00:00:00Z")), "Work", "before any swap");
+        assert_eq!(t.resolve(at("2026-07-16T00:00:00Z")), "Personal", "after first swap");
+        assert_eq!(t.resolve(at("2026-07-20T00:00:00Z")), "Work", "after second swap");
+
+        // A dir with no journal entries stays static.
+        let others = HashMap::from([("/tmp/vp-e2e-untouched".to_string(), "Solo".to_string())]);
+        assert!(load_timelines(&others)["/tmp/vp-e2e-untouched"].is_static());
+
+        std::env::remove_var("VIBEPROXY_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+        eprintln!("journal e2e OK (2 boundaries + 1 corrupt line survived)");
+    }
+
     #[test]
     fn malformed_timestamp_is_rejected() {
         assert!(parse_instant("not a date").is_none());

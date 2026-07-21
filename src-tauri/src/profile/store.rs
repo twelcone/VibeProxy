@@ -50,6 +50,11 @@ pub struct Settings {
     /// can't be derived from the logs.
     #[serde(default)]
     pub monthly_cost_usd: HashMap<String, f64>,
+    /// Opt-in: on auto-switch, also move credentials into the dir the running session is using, so
+    /// the current session switches too. Off by default — it is the only feature that writes
+    /// credentials rather than only reading them.
+    #[serde(default)]
+    pub hot_swap_enabled: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +66,7 @@ impl Default for Settings {
             cooldown_secs: 300,
             launch_at_login: false,
             monthly_cost_usd: HashMap::new(),
+            hot_swap_enabled: false,
         }
     }
 }

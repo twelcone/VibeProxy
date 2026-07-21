@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Wire auto-switch + UI affordance"
-status: pending
+status: done
 priority: P2
 effort: "1-2d"
 dependencies: [1, 2]

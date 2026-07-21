@@ -95,10 +95,25 @@ pub fn maybe_switch(
         Decision::Switch { target_id, target_label, from_label, pct } => {
             if crate::activate(app, &target_id).is_ok() {
                 *cooldown_until = Some(Instant::now() + Duration::from_secs(cfg.settings.cooldown_secs));
+
+                // The path file only affects newly launched terminals, which is no help to the
+                // session that just hit the limit. When enabled, also move the credentials into
+                // the dir that session is already using. Always write the path file too, so a new
+                // terminal and a hot-swapped session never disagree about the active account.
+                let hot = if cfg.settings.hot_swap_enabled {
+                    hot_swap_active_session(cfg, &target_id, &target_label)
+                } else {
+                    None
+                };
+                let tail = match hot {
+                    Some(true) => "Your running session switched too.",
+                    Some(false) => "Couldn't switch the running session — relaunch Claude Code to use it.",
+                    None => "Relaunch Claude Code to use it.",
+                };
                 notify(
                     app,
                     &format!("Switched to {target_label}"),
-                    &format!("{from_label} reached {pct}% — moved to a fresher account. Relaunch Claude Code to use it."),
+                    &format!("{from_label} reached {pct}% — moved to a fresher account. {tail}"),
                 );
                 let _ = app.emit(
                     "auto-switched",
@@ -115,6 +130,29 @@ pub fn maybe_switch(
             *cooldown_until = Some(Instant::now() + Duration::from_secs(cfg.settings.cooldown_secs));
             let _ = app.emit("auto-switch-blocked", serde_json::json!({ "active": from_label, "pct": pct }));
         }
+    }
+}
+
+/// Swap the target account's credentials into the dir the *previously active* profile uses, which
+/// is the dir any running session is bound to. Returns None when there is nothing to swap.
+fn hot_swap_active_session(cfg: &Config, target_id: &str, target_label: &str) -> Option<bool> {
+    let previous = cfg.active_profile_id.as_deref()?;
+    if previous == target_id {
+        return None;
+    }
+    let dir_of = |id: &str| cfg.profiles.iter().find(|p| p.id == id).map(|p| p.config_dir.clone());
+    let target_dir = dir_of(target_id)?;
+    let session_dir = dir_of(previous)?;
+
+    match crate::switch::hotswap::swap_into(
+        std::path::Path::new(&session_dir),
+        std::path::Path::new(&target_dir),
+        target_id,
+        target_label,
+    ) {
+        Ok(()) => Some(true),
+        // Never surface the underlying error text: it can carry keychain detail.
+        Err(_) => Some(false),
     }
 }
 
