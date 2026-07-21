@@ -166,37 +166,71 @@ fn severity_rgb(pct: f32) -> [u8; 3] {
     }
 }
 
-/// Draw the fill-meter tray icon: a small battery-style gauge whose fill = 5-hour %, colored by
-/// severity. Hand-drawn RGBA (no image crate); a hairline border keeps it legible on any menubar.
+/// Signed distance from a point to a rounded rectangle: negative inside, positive outside.
+/// Clamping the point into the rect's inner core reduces the corners to a circle of radius `r`.
+fn rrect_distance(px: f32, py: f32, x0: f32, y0: f32, x1: f32, y1: f32, r: f32) -> f32 {
+    // A rect narrower or shorter than its own corner diameter has an empty core, and `clamp` panics
+    // when min exceeds max. Collapse that axis to its midpoint instead — the shape degrades to a
+    // circle, which is the correct rendering for a pill shorter than it is round.
+    let core = |lo: f32, hi: f32, v: f32| if hi < lo { (lo + hi) / 2.0 } else { v.clamp(lo, hi) };
+    let cx = core(x0 + r, x1 - r, px);
+    let cy = core(y0 + r, y1 - r, py);
+    let (dx, dy) = (px - cx, py - cy);
+    (dx * dx + dy * dy).sqrt() - r
+}
+
+/// Draw the fill-meter tray icon: a pill-shaped gauge whose fill = 5-hour %, colored by severity.
+///
+/// Hand-drawn RGBA (no image crate). Coverage comes from a rounded-rect distance field rather than
+/// plotting edges directly, which is what makes the corners round and anti-aliased — the previous
+/// version stepped along four straight edges and could only ever produce a hard rectangle. Rendered
+/// at 2x so it stays crisp when macOS scales it for a Retina menubar.
 fn draw_meter(pct: f32) -> Image<'static> {
-    let (w, h): (u32, u32) = (34, 18);
-    let mut buf = vec![0u8; (w * h * 4) as usize];
-    let set = |buf: &mut Vec<u8>, x: u32, y: u32, c: [u8; 4]| {
-        if x < w && y < h {
-            let i = ((y * w + x) * 4) as usize;
-            buf[i..i + 4].copy_from_slice(&c);
-        }
-    };
+    const SCALE: f32 = 2.0;
+    let (w, h): (u32, u32) = (30 * SCALE as u32, 16 * SCALE as u32);
 
-    let (x0, y0, x1, y1) = (3u32, 4u32, w - 4, h - 5);
-    let border = [150u8, 150, 150, 235];
-    for x in x0..=x1 {
-        set(&mut buf, x, y0, border);
-        set(&mut buf, x, y1, border);
-    }
-    for y in y0..=y1 {
-        set(&mut buf, x0, y, border);
-        set(&mut buf, x1, y, border);
-    }
+    // Pill geometry in device pixels, inset so anti-aliasing has room at the edges.
+    let (x0, y0) = (1.0 * SCALE, 3.0 * SCALE);
+    let (x1, y1) = (w as f32 - 1.0 * SCALE, h as f32 - 3.0 * SCALE);
+    let radius = (y1 - y0) / 2.0;
 
-    let inner_x0 = x0 + 1;
-    let inner_w = (x1 - 1).saturating_sub(inner_x0) + 1;
-    let fill_w = ((pct / 100.0).clamp(0.0, 1.0) * inner_w as f32).round() as u32;
+    let track = [255u8, 255, 255, 56]; // reads on a light or dark menubar alike
     let c = severity_rgb(pct);
-    let fill = [c[0], c[1], c[2], 255];
-    for y in (y0 + 1)..y1 {
-        for x in inner_x0..inner_x0 + fill_w {
-            set(&mut buf, x, y, fill);
+    let fill_end = x0 + (x1 - x0) * (pct / 100.0).clamp(0.0, 1.0);
+
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+
+            // 0.5px feather either side of the edge gives a clean 1px anti-aliased boundary.
+            let track_cov = (0.5 - rrect_distance(px, py, x0, y0, x1, y1, radius)).clamp(0.0, 1.0);
+            if track_cov <= 0.0 {
+                continue;
+            }
+            // The fill is its own pill so its leading edge stays round at low percentages.
+            let fill_cov = if fill_end > x0 {
+                (0.5 - rrect_distance(px, py, x0, y0, fill_end.max(x0 + 2.0 * radius), y1, radius))
+                    .clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+
+            let (r, g, b) = (c[0] as f32, c[1] as f32, c[2] as f32);
+            let (tr, tg, tb) = (track[0] as f32, track[1] as f32, track[2] as f32);
+            // Composite fill over track, then the whole pill over transparency.
+            let a_fill = fill_cov;
+            let a_track = track[3] as f32 / 255.0;
+            let out_a = a_fill + a_track * (1.0 - a_fill);
+            let blend = |f: f32, t: f32| {
+                if out_a <= 0.0 { 0.0 } else { (f * a_fill + t * a_track * (1.0 - a_fill)) / out_a }
+            };
+
+            let i = ((y * w + x) * 4) as usize;
+            buf[i] = blend(r, tr).round() as u8;
+            buf[i + 1] = blend(g, tg).round() as u8;
+            buf[i + 2] = blend(b, tb).round() as u8;
+            buf[i + 3] = (out_a * track_cov * 255.0).round() as u8;
         }
     }
 
