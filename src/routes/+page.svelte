@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
+  import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
   import RowBar from "$lib/usage/RowBar.svelte";
   import MiniBars from "$lib/usage/MiniBars.svelte";
   import { modelName, tokens as fmtTokens, usd } from "$lib/format";
@@ -45,6 +46,27 @@
 
   /** The popover is usage-first; configuration lives behind the toolbar's Settings tab. */
   let view = $state<"home" | "settings">("home");
+  let mainEl = $state<HTMLElement | null>(null);
+  let barEl = $state<HTMLElement | null>(null);
+  let lastFitHeight = 0;
+
+  const PANEL_WIDTH = 400;
+  const PANEL_MAX_HEIGHT = 720; // beyond this the panel would run off shorter displays
+
+  /**
+   * A menubar panel should be exactly as tall as its content. The OS window is a fixed rectangle,
+   * so a 640px window holding 500px of content painted 140px of dead surface underneath. Measure
+   * the shell and resize the window to match; only past the cap does the content scroll.
+   */
+  function fitWindowToContent() {
+    if (!mainEl || !barEl) return;
+    // Measure `main.scrollHeight` (intrinsic content) rather than the shell, whose height is
+    // clamped to the viewport — observing the shell would feed its own resize back in as a loop.
+    const h = Math.min(Math.ceil(mainEl.scrollHeight + barEl.offsetHeight + 2), PANEL_MAX_HEIGHT);
+    if (Math.abs(h - lastFitHeight) < 3) return; // ignore sub-pixel churn
+    lastFitHeight = h;
+    getCurrentWindow().setSize(new LogicalSize(PANEL_WIDTH, h)).catch(() => {});
+  }
   let stats = $state<Analytics | null>(null);
   const TOP_MODELS = 3;
 
@@ -119,6 +141,14 @@
   onMount(async () => {
     await refresh();
     loadStats();
+    if (mainEl) {
+      const ro = new ResizeObserver(fitWindowToContent);
+      // Observe the content, not the clamped shell.
+      for (const child of Array.from(mainEl.children)) ro.observe(child);
+      ro.observe(mainEl);
+      unlisteners.push(() => ro.disconnect());
+      fitWindowToContent();
+    }
     unlisteners.push(
       await listen<Usage[]>("usage-updated", (e) => {
         const next = { ...usage };
@@ -232,7 +262,7 @@
 </script>
 
 <div class="shell">
-<main>
+<main bind:this={mainEl}>
   <header>
     <span class="mark" aria-hidden="true"><Icon name="swap" size={17} /></span>
     <span class="wordmark">
@@ -394,7 +424,7 @@
   {/if}
 </main>
 
-<nav class="toolbar">
+<nav class="toolbar" bind:this={barEl}>
   <button class:on={view === "home"} aria-pressed={view === "home"} onclick={() => (view = "home")}><Icon name="home" size={13} />Home</button>
   <button onclick={openUsage}><Icon name="chart" size={13} />Analytics</button>
   <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}><Icon name="settings" size={13} />Settings</button>
@@ -410,6 +440,9 @@
   /* `html:root` (0,1,1) outranks tokens.css's `:root` (0,1,0). A plain `html` selector loses to it,
      which left an opaque square painted behind the shell's rounded corners. */
   :global(html:root), :global(body) { background: transparent; }
+  /* The document itself must never scroll or rubber-band; only `main` scrolls, and it stops at its
+     own bounds rather than bouncing the whole panel. */
+  :global(html), :global(body) { height: 100%; overflow: hidden; overscroll-behavior: none; }
   /* The webview draws a persistent scrollbar where macOS would fade an overlay one; make it thin
      and only visible while the pointer is over the panel. */
   :global(::-webkit-scrollbar) { width: 7px; }
@@ -419,10 +452,10 @@
   }
   .shell:hover :global(::-webkit-scrollbar-thumb) { background: var(--panel-3); background-clip: padding-box; }
   .shell {
-    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    max-height: 100vh; display: flex; flex-direction: column; overflow: hidden;
     background: var(--panel); border: 1px solid var(--hair); border-radius: 12px;
   }
-  main { flex: 1; overflow-y: auto; padding: 14px 16px 16px; }
+  main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 16px; }
 
   .sec-head { display: flex; align-items: baseline; gap: 8px; }
   .sec-head h2 { flex: 1; }
@@ -494,8 +527,8 @@
   .metric { display: grid; grid-template-columns: 22px 1fr 34px 46px; align-items: center; gap: 8px; }
   .metric .k { font-size: .68rem; color: var(--ink-faint); }
   .metric .t { font-size: .68rem; color: var(--ink-faint); text-align: right; font-variant-numeric: tabular-nums; }
-  .bar { height: 6px; border-radius: 3px; background: var(--bar); overflow: hidden; }
-  .bar > i { display: block; height: 100%; border-radius: 3px; transition: width .3s ease-out; }
+  .bar { height: 7px; border-radius: 999px; background: var(--bar); overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; transition: width .3s ease-out; }
   .fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
   .metric .v { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; text-align: right; }
 
