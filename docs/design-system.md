@@ -113,6 +113,33 @@ no zoom/brush is well inside what scale + path math covers; revisit only if inte
 - **Known limitation:** SVG tick text is a fixed 10px and won't grow with macOS text-size settings.
   The table fallback is the accessible route for anyone who needs larger type.
 
+### Encodings that real data forced
+
+Both of these were chosen on paper, shipped, then changed after looking at actual logs. Recorded so
+they don't get "simplified" back.
+
+- **Composition charts are normalized to 100%, not stacked by magnitude.** Cache reads run ~96% of
+  tokens, so an absolute stack collapsed cache-write and fresh-input into invisible slivers and read
+  as a plain total-tokens bar chart. Daily magnitude is the trend chart's job; the composition chart's
+  only job is the split.
+- **The trend chart needs a Share mode.** One model routinely accounts for ~95% of tokens, which pins
+  every other series flat to the axis — the chart is effectively single-series in absolute mode.
+  Share (percent of each bucket) is what makes the others readable.
+- **No flat reference lines.** A cache-hit-rate line sat at 100% across the whole chart: zero
+  information, and it was drawn in `--accent`, violating the accent rule above. Removed.
+- **A lone row draws no bar.** A bar at 100% of itself encodes nothing; `BarRow` takes `soloRow` to
+  suppress the track when it is the only row.
+
+## Numbers
+
+- **Compact units are hand-rolled, not `Intl` compact notation.** Locale compact renders "2.8bn" and
+  "116.2m" under en-AU, and a lowercase "m" reads as milli as readily as million. Suffixes stay
+  uppercase `K`/`M`/`B` everywhere; only the digits are localized.
+- **Currency uses `currencyDisplay: "narrowSymbol"`** — otherwise en-AU renders "US$6,149.44", and the
+  country prefix is noise in a single-currency UI.
+- **Percentages never round to a value they haven't reached.** 99.93% renders as "99.9%", not "100%";
+  0.02% renders as "0.0%", not "0%".
+
 ## Typography
 
 - **UI face:** the macOS system stack — `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`.

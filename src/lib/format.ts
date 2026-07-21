@@ -1,14 +1,25 @@
 /** Number/currency formatting for the Usage view. Compact in the UI, exact on hover. */
 
-const compact = new Intl.NumberFormat(undefined, {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
 const exact = new Intl.NumberFormat();
 
-/** `1234567` → `1.2M`. Use with `fullTokens()` as the title/tooltip. */
+/**
+ * `1234567` → `1.2M`. Hand-rolled rather than `Intl` compact notation, which is locale-dependent:
+ * en-AU renders "2.8bn" / "116.2m", and a lowercase "m" reads as milli as easily as million. Unit
+ * suffixes stay uppercase and identical everywhere; only the digits are localized.
+ */
 export function tokens(n: number): string {
-  return compact.format(n);
+  const abs = Math.abs(n);
+  const unit = abs >= 1e9 ? ["B", 1e9] : abs >= 1e6 ? ["M", 1e6] : abs >= 1e3 ? ["K", 1e3] : null;
+  if (!unit) return exact.format(Math.round(n));
+  const [suffix, divisor] = unit as [string, number];
+  const scaled = n / divisor;
+  // One decimal below 100 (1.2M), none above (250M) — keeps axis labels a consistent width.
+  const digits = Math.abs(scaled) < 100 ? 1 : 0;
+  const text = scaled.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+  return `${text}${suffix}`;
 }
 
 /** The unabbreviated count, for tooltips and the table. */
@@ -26,6 +37,8 @@ export function usd(v: number | null | undefined): string {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: "USD",
+    // Without this, en-AU renders "US$6,149.44"; the country prefix is noise in a single-currency UI.
+    currencyDisplay: "narrowSymbol",
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   }).format(v);
@@ -37,9 +50,15 @@ export function perMtok(v: number | null): string {
   return `${usd(v)}/Mtok`;
 }
 
+/**
+ * Rounds to a whole percent, except near the ends of the scale where that would assert something
+ * false — 99.93% must not render as "100%", and 0.02% must not render as "0%".
+ */
 export function pct(v: number | null): string {
   if (v == null || !isFinite(v)) return "—";
-  return `${Math.round(v)}%`;
+  const rounded = Math.round(v);
+  const lies = (rounded === 100 && v < 100) || (rounded === 0 && v > 0);
+  return `${lies ? v.toFixed(1) : rounded}%`;
 }
 
 /**

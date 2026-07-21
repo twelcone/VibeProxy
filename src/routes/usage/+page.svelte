@@ -60,7 +60,11 @@
   let granularity = $state<Granularity>("day");
   let groupBy = $state<"model" | "account">("model");
   let selectedModels = $state<string[]>([]);
-  let metric = $state<"tokens" | "value">("tokens");
+  /**
+   * `share` normalizes each bucket to 100%. Without it the chart is effectively single-series on
+   * real data: one model routinely accounts for ~95% of tokens, pinning every other line to the axis.
+   */
+  let metric = $state<"tokens" | "value" | "share">("tokens");
 
   const sum = (t: Tokens) => t.input + t.output + t.cacheWrite + t.cacheRead;
   const isoDay = (d: Date) => d.toLocaleDateString("sv"); // sv → YYYY-MM-DD in local time
@@ -142,7 +146,7 @@
   const trendDates = $derived([...new Set(grain.map((r) => bucketOf(r.date)))].sort());
 
   const metricOf = (r: { tokens: Tokens; value: number | null }) =>
-    metric === "tokens" ? sum(r.tokens) : (r.value ?? 0);
+    metric === "value" ? (r.value ?? 0) : sum(r.tokens);
 
   const trendSeries = $derived.by<Series[]>(() => {
     const rows: { key: string; date: string; v: number }[] =
@@ -167,6 +171,20 @@
       if (!acc.has(key)) acc.set(key, new Map());
       const m = acc.get(key)!;
       m.set(bucket, (m.get(bucket) ?? 0) + r.v);
+    }
+
+    // Share mode: restate each bucket as percentages of that bucket's total.
+    if (metric === "share") {
+      const bucketTotals = new Map<string, number>();
+      for (const m of acc.values()) {
+        for (const [bucket, v] of m) bucketTotals.set(bucket, (bucketTotals.get(bucket) ?? 0) + v);
+      }
+      for (const m of acc.values()) {
+        for (const [bucket, v] of m) {
+          const t = bucketTotals.get(bucket) ?? 0;
+          m.set(bucket, t > 0 ? (v / t) * 100 : 0);
+        }
+      }
     }
 
     const label = (k: string) =>
@@ -329,13 +347,15 @@
             aria-pressed={metric === "tokens"}>Tokens</button>
           <button class:on={metric === "value"} onclick={() => (metric = "value")}
             aria-pressed={metric === "value"}>API value</button>
+          <button class:on={metric === "share"} onclick={() => (metric = "share")}
+            aria-pressed={metric === "share"}>Share</button>
         </div>
       </div>
       <TrendChart
         dates={trendDates}
         series={trendSeries}
-        format={metric === "tokens" ? tokens : usd}
-        title={`${metric === "tokens" ? "Tokens" : "API-equivalent value"} per ${granularity === "week" ? "week" : "day"}, by ${groupBy}`}
+        format={metric === "value" ? usd : metric === "share" ? pct : tokens}
+        title={`${metric === "value" ? "API-equivalent value" : metric === "share" ? "Share of tokens" : "Tokens"} per ${granularity === "week" ? "week" : "day"}, by ${groupBy}`}
       />
     </section>
 
@@ -359,6 +379,7 @@
             valueText={tokens(sum(a.tokens))}
             secondaryText={usd(a.value)}
             title={fullTokens(sum(a.tokens))}
+            soloRow={data.perAccount.length === 1}
           >
             <div class="sub-cost">
               <label>
@@ -403,6 +424,7 @@
               valueText={tokens(sum(m.tokens))}
               secondaryText={usd(m.value)}
               title={m.model}
+              soloRow={shownModels.length === 1}
             />
           {/each}
         </div>
@@ -423,6 +445,7 @@
               valueText={tokens(sum(p.tokens))}
               secondaryText={usd(p.value)}
               title={p.project}
+              soloRow={shownProjects.length === 1}
             />
           {/each}
         </div>

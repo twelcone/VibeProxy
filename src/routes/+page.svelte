@@ -2,6 +2,9 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
+  import RowBar from "$lib/usage/RowBar.svelte";
+  import MiniBars from "$lib/usage/MiniBars.svelte";
+  import { modelName, tokens as fmtTokens, usd } from "$lib/format";
 
   type Profile = {
     id: string; label: string; email: string | null; configDir: string;
@@ -26,10 +29,59 @@
   let importLabel = $state("");
   let banner = $state("");
 
+  type Tok = { input: number; output: number; cacheWrite: number; cacheRead: number };
+  type Analytics = {
+    totals: Tok;
+    perModel: { model: string; tokens: Tok; value: number | null }[];
+    perDay: { date: string; tokens: Tok; value: number | null }[];
+    totalValue: number;
+  };
+
   let notice = $state("");
   let settings = $state<Settings | null>(null);
   let activity = $state<string[]>([]);
   let copied = $state(false);
+
+  /** The popover is usage-first; configuration lives behind the toolbar's Settings tab. */
+  let view = $state<"home" | "settings">("home");
+  let stats = $state<Analytics | null>(null);
+  const TOP_MODELS = 3;
+
+  const sumTok = (t: Tok) => t.input + t.output + t.cacheWrite + t.cacheRead;
+
+  /** Last 7 local days, zero-filled so the mini chart keeps a stable 7-column shape. */
+  const spendDays = $derived.by(() => {
+    const byDate = new Map((stats?.perDay ?? []).map((d) => [d.date, d.value ?? 0]));
+    const out: { date: string; value: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const iso = d.toLocaleDateString("sv");
+      out.push({ date: iso, value: byDate.get(iso) ?? 0 });
+    }
+    return out;
+  });
+  const spendTotal = $derived(spendDays.reduce((n, d) => n + d.value, 0));
+  const topModels = $derived(
+    [...(stats?.perModel ?? [])]
+      .sort((a, b) => sumTok(b.tokens) - sumTok(a.tokens))
+      .slice(0, TOP_MODELS),
+  );
+  const topModelMax = $derived(Math.max(1, ...topModels.map((m) => sumTok(m.tokens))));
+
+  /** Popover stats are always the last 7 days — the Usage window is where ranges are explored. */
+  async function loadStats() {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 6);
+    try {
+      stats = await invoke<Analytics>("get_usage_analytics", {
+        range: { from: from.toLocaleDateString("sv"), to: to.toLocaleDateString("sv") },
+      });
+    } catch {
+      stats = null; // usage panel just stays hidden; account switching must keep working
+    }
+  }
   const INTEGRATION_SNIPPET =
     `_vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR`;
 
@@ -65,6 +117,7 @@
 
   onMount(async () => {
     await refresh();
+    loadStats();
     unlisteners.push(
       await listen<Usage[]>("usage-updated", (e) => {
         const next = { ...usage };
@@ -172,17 +225,17 @@
 
 <main>
   <header>
-    <h1>VibeProxy</h1><span class="sub">Claude Code account switcher</span>
-    <button class="btn small usage-link" onclick={openUsage}>Usage</button>
+    <h1>VibeProxy</h1><span class="sub">Claude Code accounts</span>
   </header>
 
   {#if banner}<div class="banner" role="alert">{banner} <button class="x" onclick={() => (banner = "")}>×</button></div>{/if}
   {#if notice}<div class="notice" role="status">{notice} <button class="x" onclick={() => (notice = "")}>×</button></div>{/if}
 
+  {#if view === "home"}
   <section>
     <h2>Accounts</h2>
     {#if profiles.length === 0}
-      <p class="empty">No accounts yet — add one below.</p>
+      <p class="empty">No accounts yet — add one in Settings.</p>
     {/if}
     {#each profiles as p (p.id)}
       {@const u = usage[p.id]}
@@ -190,20 +243,22 @@
         <div class="id">
           <div class="name">
             {p.label}
+            {#if p.id === activeId}<span class="chip on">active</span>{/if}
             {#if p.subscriptionType}<span class="tier">{p.subscriptionType}</span>{/if}
             {#if u?.status === "needsReauth"}<span class="chip crit">re-login</span>{/if}
             {#if u?.fiveHourPct != null && u.fiveHourPct >= 90}<span class="chip crit">near limit</span>{/if}
           </div>
-          <div class="email">{p.email ?? p.configDir}</div>
+          <div class="email" title={p.email ?? p.configDir}>{p.email ?? p.configDir}</div>
         </div>
+        <!-- Two actions max: three overflowed the 420px card. Active is shown as a badge above,
+             since it is state rather than something you can click. -->
         <div class="actions">
           {#if p.id === activeId}
-            <button class="btn ghost" disabled>✓ Active</button>
             <button class="btn" onclick={relaunch} title="Open a terminal on this account">Relaunch</button>
           {:else}
             <button class="btn" onclick={() => switchTo(p.id)}>Switch</button>
           {/if}
-          <button class="btn icon" title="Remove" onclick={() => del(p)}>Remove</button>
+          <button class="btn icon" title={`Remove ${p.label}`} aria-label={`Remove ${p.label}`} onclick={() => del(p)}>×</button>
         </div>
         <div class="usage">
           <div class="metric">
@@ -222,6 +277,34 @@
     {/each}
   </section>
 
+  {#if stats}
+    <section>
+      <div class="sec-head">
+        <h2>Spend · 7 days</h2>
+        <span class="sec-total">{usd(spendTotal)}</span>
+      </div>
+      <MiniBars days={spendDays} format={usd} />
+    </section>
+
+    {#if topModels.length}
+      <section>
+        <h2>Top models · 7 days</h2>
+        {#each topModels as m (m.model)}
+          <RowBar
+            label={modelName(m.model)}
+            value={sumTok(m.tokens)}
+            max={topModelMax}
+            secondaryText={fmtTokens(sumTok(m.tokens))}
+            valueText={usd(m.value)}
+            title={m.model}
+          />
+        {/each}
+      </section>
+    {/if}
+  {/if}
+  {/if}
+
+  {#if view === "settings"}
   <section>
     <h2>Add account</h2>
     {#if add}
@@ -286,11 +369,37 @@
       </ul>
     </section>
   {/if}
+  {/if}
 </main>
+
+<nav class="toolbar">
+  <button class:on={view === "home"} aria-pressed={view === "home"} onclick={() => (view = "home")}>Home</button>
+  <button onclick={openUsage}>Analytics</button>
+  <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}>Settings</button>
+  <button class="icon" title="Refresh" aria-label="Refresh" onclick={() => { refresh(); loadStats(); }}>↻</button>
+</nav>
 
 <style>
   /* Color/type tokens live in src/lib/styles/tokens.css (shared with the Usage window). */
-  main { padding: 14px 16px 22px; }
+  /* Bottom padding clears the fixed toolbar. */
+  main { padding: 14px 16px 58px; }
+
+  .sec-head { display: flex; align-items: baseline; gap: 8px; }
+  .sec-head h2 { flex: 1; }
+  .sec-total { font-size: .95rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+  /* Pinned so navigation stays reachable however long the account list gets. */
+  .toolbar {
+    position: fixed; inset: auto 0 0 0; display: flex; align-items: center; gap: 2px;
+    padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--hair);
+  }
+  .toolbar button {
+    font: inherit; font-size: .74rem; font-weight: 600; padding: 5px 10px; border: 0;
+    border-radius: 6px; background: none; color: var(--ink-soft); cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--panel-2); color: var(--ink); }
+  .toolbar button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .toolbar .icon { margin-left: auto; font-size: .9rem; }
   header { display: flex; align-items: baseline; gap: 8px; }
   h1 { margin: 0; font-size: 1.15rem; }
   .sub { color: var(--ink-soft); font-size: .8rem; }
@@ -308,7 +417,15 @@
   .tier { font-size: .62rem; text-transform: uppercase; letter-spacing: .03em; background: var(--panel-3); color: var(--ink-soft); padding: 1px 5px; border-radius: 4px; font-weight: 700; }
   .chip { font-size: .62rem; text-transform: uppercase; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
   .chip.crit { color: var(--crit); background: color-mix(in srgb, var(--crit) 14%, transparent); }
-  .email { font-size: .78rem; color: var(--ink-soft); margin-top: 2px; word-break: break-all; }
+  .chip.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .actions { flex-wrap: nowrap; }
+  /* Grid items default to min-width:auto and refuse to shrink below their content, which pushed
+     the card wider than the window and produced a horizontal body scrollbar. */
+  .card > .id { min-width: 0; }
+  .btn.icon { padding: 4px 9px; font-size: .95rem; line-height: 1; }
+  /* Long addresses truncate rather than break-all, which used to split them mid-word across
+     three lines. Full value stays available via the title attribute. */
+  .email { font-size: .78rem; color: var(--ink-soft); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .actions { display: flex; gap: 6px; align-items: start; }
   .usage { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 4px 16px; align-items: center; }
   .metric { display: flex; align-items: center; gap: 7px; }

@@ -12,11 +12,14 @@
     valueText,
     secondaryText = "",
     title = "",
+    soloRow = false,
     children = undefined,
   }: {
     label: string;
     value: number;
     max: number;
+    /** Suppress the track when this is the only row — a bar at 100% of itself says nothing. */
+    soloRow?: boolean;
     color: string;
     valueText: string;
     secondaryText?: string;
@@ -34,9 +37,11 @@
     <span class="value">{valueText}</span>
     {#if secondaryText}<span class="secondary">{secondaryText}</span>{/if}
   </div>
-  <div class="track">
-    <i style:width={`${widthPct}%`} style:background={color}></i>
-  </div>
+  {#if !soloRow}
+    <div class="track">
+      <i style:width={`${widthPct}%`} style:background={color}></i>
+    </div>
+  {/if}
   {#if children}<div class="extra">{@render children()}</div>{/if}
 </div>
 

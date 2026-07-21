@@ -205,6 +205,10 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    /* Model ids are hyphenated (opus-4-8), which CSS treats as break opportunities — without this
+       the label wraps mid-id and orphans its swatch. */
+    white-space: nowrap;
+    flex: none;
     font: inherit;
     font-size: 0.72rem;
     color: var(--ink-soft);

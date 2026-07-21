@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { linearScale, linePath, niceTicks, shortDate, type Point } from "$lib/chart/svg";
+  import { linearScale, shortDate } from "$lib/chart/svg";
   import ChartTable from "./ChartTable.svelte";
   import { tokens as fmtTokens, pct } from "$lib/format";
 
@@ -14,7 +14,7 @@
 
   const W = 800;
   const H = 220;
-  const PAD = { top: 12, right: 44, bottom: 26, left: 56 };
+  const PAD = { top: 12, right: 16, bottom: 26, left: 46 };
 
   let showTable = $state(false);
   let hover = $state<number | null>(null);
@@ -24,6 +24,10 @@
   const hitPct = (d: CacheDay) => {
     const denom = d.input + d.cacheRead;
     return denom > 0 ? (d.cacheRead / denom) * 100 : 0;
+  };
+  const shareOf = (key: "input" | "cacheWrite" | "cacheRead") => {
+    const t = days.reduce((n, d) => n + total(d), 0);
+    return t > 0 ? (days.reduce((n, d) => n + d[key], 0) / t) * 100 : null;
   };
 
   /** Whole-range hit rate — lives here beside the detail rather than in a KPI card, where it read
@@ -35,26 +39,27 @@
   });
 
   const summary = $derived.by(() => {
-    if (days.length === 0) return "Cache efficiency. No data.";
+    if (days.length === 0) return "Token composition. No data.";
     const read = days.reduce((n, d) => n + d.cacheRead, 0);
     const written = days.reduce((n, d) => n + d.cacheWrite, 0);
     const fresh = days.reduce((n, d) => n + d.input, 0);
-    return `Cache efficiency across ${days.length} buckets. ${fmtTokens(read)} read from cache, ${fmtTokens(written)} written to cache, ${fmtTokens(fresh)} fresh input. Overall hit rate ${pct(overallHit)}. Use "View as table" for exact values.`;
+    return `Token composition across ${days.length} buckets, as a share of each bucket's input. Overall ${pct(shareOf("cacheRead"))} read from cache (${fmtTokens(read)}), ${pct(shareOf("cacheWrite"))} written to cache (${fmtTokens(written)}), ${pct(shareOf("input"))} fresh input (${fmtTokens(fresh)}). Cache hit rate ${pct(overallHit)}. Use "View as table" for exact values.`;
   });
 
-  const max = $derived(Math.max(1, ...days.map(total)));
-  const ticks = $derived(niceTicks(max));
-  const yMax = $derived(Math.max(max, ticks[ticks.length - 1] ?? max));
-
+  /**
+   * Composition, not magnitude: every bar is normalized to 100%.
+   *
+   * Absolute stacking failed on real data — cache reads run ~96% of tokens, so the write and fresh
+   * slices collapsed into invisible slivers and the chart read as a plain total-tokens bar chart.
+   * Daily totals are already the trend chart's job; what this chart is *for* is the split.
+   */
   const x = $derived(linearScale([0, Math.max(days.length - 1, 1)], [PAD.left, W - PAD.right]));
-  const y = $derived(linearScale([0, yMax], [H - PAD.bottom, PAD.top]));
-  const yPct = $derived(linearScale([0, 100], [H - PAD.bottom, PAD.top]));
+  const y = $derived(linearScale([0, 100], [H - PAD.bottom, PAD.top]));
 
   const barWidth = $derived(
-    Math.max(2, ((W - PAD.left - PAD.right) / Math.max(days.length, 1)) * 0.62),
+    Math.max(2, ((W - PAD.left - PAD.right) / Math.max(days.length, 1)) * 0.72),
   );
   const labelEvery = $derived(Math.max(1, Math.ceil(days.length / 6)));
-  const hitPoints = $derived<Point[]>(days.map((d, i) => [x(i), yPct(hitPct(d))]));
 
   // Cache read is the "good" outcome, so it takes the good hue; write and fresh input are neutral
   // surfaces rather than warn/crit — a low hit rate isn't an error state.
@@ -64,13 +69,14 @@
     { key: "input", label: "Fresh input", color: "var(--series-6)" },
   ] as const;
 
-  /** Stacked from the baseline up, in BANDS order. */
+  /** Stacked from the baseline up in BANDS order, as percentages of that bucket's total. */
   function segments(d: CacheDay) {
+    const t = total(d);
     let acc = 0;
     return BANDS.map((b) => {
-      const v = d[b.key];
-      const seg = { ...b, value: v, y0: acc, y1: acc + v };
-      acc += v;
+      const share = t > 0 ? (d[b.key] / t) * 100 : 0;
+      const seg = { ...b, value: d[b.key], share, y0: acc, y1: acc + share };
+      acc += share;
       return seg;
     });
   }
@@ -78,15 +84,14 @@
 
 <div class="chart">
   <div class="head">
-    <h3>Cache efficiency</h3>
+    <h3>Token composition</h3>
     {#if overallHit !== null}
-      <span class="headline">{pct(overallHit)}<small>hit rate</small></span>
+      <span class="headline">{pct(shareOf("cacheRead"))}<small>from cache</small></span>
     {/if}
     <div class="legend">
       {#each BANDS as b (b.key)}
         <span class="item"><i style:background={b.color}></i>{b.label}</span>
       {/each}
-      <span class="item"><i class="line"></i>Hit %</span>
     </div>
     <button class="toggle" onclick={() => (showTable = !showTable)} aria-pressed={showTable}>
       {showTable ? "View as chart" : "View as table"}
@@ -111,14 +116,11 @@
   {:else}
     <div class="plot">
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary}>
-        {#each ticks as t (t)}
+        {#each [0, 25, 50, 75, 100] as t (t)}
           <line class="grid" x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} />
           <text class="tick" x={PAD.left - 8} y={y(t)} text-anchor="end" dominant-baseline="middle">
-            {fmtTokens(t)}
+            {t}%
           </text>
-        {/each}
-        {#each [0, 50, 100] as p (p)}
-          <text class="tick pct" x={W - PAD.right + 8} y={yPct(p)} dominant-baseline="middle">{p}%</text>
         {/each}
 
         {#each days as d, i (d.date)}
@@ -135,8 +137,6 @@
             <text class="tick" x={x(i)} y={H - PAD.bottom + 16} text-anchor="middle">{shortDate(d.date)}</text>
           {/if}
         {/each}
-
-        <path class="hit" d={linePath(hitPoints)} />
 
         {#if hover !== null}
           <line class="cursor" x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={H - PAD.bottom} />
@@ -156,10 +156,12 @@
         {@const d = days[hover]}
         <div class="tooltip" style:left={`${(x(hover) / W) * 100}%`}>
           <strong>{shortDate(d.date)}</strong>
-          {#each BANDS as b (b.key)}
-            <span class="row"><i style:background={b.color}></i>{b.label}<b>{fmtTokens(d[b.key])}</b></span>
+          {#each segments(d) as s (s.key)}
+            <span class="row">
+              <i style:background={s.color}></i>{s.label}
+              <b>{pct(s.share)} · {fmtTokens(s.value)}</b>
+            </span>
           {/each}
-          <span class="row"><i class="line"></i>Hit rate<b>{pct(hitPct(d))}</b></span>
         </div>
       {/if}
     </div>
@@ -219,12 +221,6 @@
     height: 8px;
     border-radius: 2px;
   }
-  .item i.line {
-    width: 14px;
-    height: 0;
-    border-radius: 0;
-    border-top: 2px dashed var(--accent);
-  }
   .toggle {
     margin-left: auto;
     font: inherit;
@@ -265,12 +261,6 @@
     font-size: 10px;
     font-variant-numeric: tabular-nums;
   }
-  .hit {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 2;
-    stroke-dasharray: 4 3;
-  }
 
   .tooltip {
     position: absolute;
@@ -298,11 +288,6 @@
     width: 7px;
     height: 7px;
     border-radius: 2px;
-  }
-  .tooltip .row i.line {
-    width: 12px;
-    height: 0;
-    border-top: 2px dashed var(--accent);
   }
   .tooltip .row b {
     margin-left: auto;
