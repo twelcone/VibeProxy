@@ -237,6 +237,16 @@ mod io_tests {
         let _g = paths::ENV_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = std::env::temp_dir().join(new_id());
         std::env::set_var("VIBEPROXY_DIR", &tmp);
+
+        // Belt and braces. These tests mutate real files, and an earlier version of this guard let
+        // a concurrent test clear the variable mid-run, which wrote fixture profiles into the
+        // developer's actual `~/.vibeproxy/config.json`. Never take that on trust again: if the
+        // redirect is not in effect, fail the test rather than touch real state.
+        assert_eq!(paths::vibeproxy_dir(), tmp, "VIBEPROXY_DIR redirect is not in effect");
+        assert!(
+            !paths::config_path().starts_with(dirs::home_dir().unwrap().join(".vibeproxy")),
+            "refusing to run: would write to the real config"
+        );
         ensure_initialized().unwrap();
         f();
         std::env::remove_var("VIBEPROXY_DIR");

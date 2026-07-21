@@ -198,6 +198,8 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("vp-journal-e2e-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::env::set_var("VIBEPROXY_DIR", &tmp);
+        // Same guard as `store::io_tests` — never append to the developer's real journal.
+        assert_eq!(paths::vibeproxy_dir(), tmp, "VIBEPROXY_DIR redirect is not in effect");
 
         let dir = "/tmp/vp-e2e-profile-work";
         for (at, label) in [("2026-07-15T00:00:00Z", "Personal"), ("2026-07-18T00:00:00Z", "Work")] {
