@@ -89,6 +89,12 @@ async fn export_usage_csv(range: Option<usage_analytics::Range>, path: String) -
     .map_err(|e| format!("export task failed: {e}"))?
 }
 
+/// Quit. Lives in the panel toolbar now that the tray has no native menu.
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 /// Drop the cached aggregate so the next scan re-reads every log file.
 #[tauri::command]
 fn refresh_usage_analytics() {
@@ -103,6 +109,40 @@ fn open_usage_window(app: AppHandle) -> Result<(), String> {
 }
 
 pub(crate) const USAGE_WINDOW: &str = "usage";
+
+/// When the tray panel last auto-hid on losing focus. Clicking the tray icon is itself what steals
+/// focus, so the tray handler consults this to tell "click to dismiss" from "click to open".
+static PANEL_HIDDEN_AT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+const PANEL_REOPEN_GUARD: std::time::Duration = std::time::Duration::from_millis(250);
+
+pub(crate) fn note_panel_hidden() {
+    if let Ok(mut g) = PANEL_HIDDEN_AT.lock() {
+        *g = Some(std::time::Instant::now());
+    }
+}
+
+/// Debounce for the tray toggle. A real click delivers both Down and Up; some synthetic and
+/// accessibility-driven clicks deliver only one. Accepting either state and debouncing means the
+/// panel opens for both, and never double-toggles on a single physical click.
+static LAST_TOGGLE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+const TOGGLE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
+
+pub(crate) fn toggle_debounced() -> bool {
+    let Ok(mut g) = LAST_TOGGLE.lock() else { return false };
+    if g.is_some_and(|t| t.elapsed() < TOGGLE_DEBOUNCE) {
+        return false;
+    }
+    *g = Some(std::time::Instant::now());
+    true
+}
+
+pub(crate) fn panel_recently_hidden() -> bool {
+    PANEL_HIDDEN_AT
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .is_some_and(|t| t.elapsed() < PANEL_REOPEN_GUARD)
+}
 
 pub(crate) fn show_usage_window(app: &AppHandle) -> tauri::Result<()> {
     if let Some(win) = app.get_webview_window(USAGE_WINDOW) {
@@ -323,6 +363,7 @@ pub fn run() {
             get_usage_analytics,
             export_usage_csv,
             refresh_usage_analytics,
+            quit_app,
             open_usage_window,
             adopt_profile,
             begin_add_profile,
@@ -339,6 +380,16 @@ pub fn run() {
             store::ensure_initialized()?;
             let handle = app.handle().clone();
             tray::build_tray(&handle)?;
+            // The panel dismisses on click-away, like any menubar popover.
+            if let Some(win) = handle.get_webview_window("main") {
+                let w = win.clone();
+                win.on_window_event(move |e| {
+                    if let tauri::WindowEvent::Focused(false) = e {
+                        note_panel_hidden();
+                        let _ = w.hide();
+                    }
+                });
+            }
             bootstrap_default_profile(&handle);
             onboarding::gc_orphans();
             usage::poller::spawn(handle, usage_state);

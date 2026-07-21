@@ -5,22 +5,26 @@ use crate::usage::{ProfileUsage, UsageStatus};
 use std::collections::HashMap;
 use tauri::{
     image::Image,
-    menu::{Menu, MenuBuilder, MenuEvent, MenuItemBuilder, PredefinedMenuItem},
-    tray::{TrayIcon, TrayIconBuilder},
-    AppHandle, Manager, Wry,
+    tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent},
+    AppHandle, LogicalPosition, Manager, Rect,
 };
 
 const TRAY_ID: &str = "main";
 
+/// Gap between the menubar and the panel, in logical pixels.
+const PANEL_GAP: f64 = 6.0;
+
 /// Build the tray icon + menu and attach it. Called once in `setup()`.
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let cfg = profile::store::load();
-    let menu = build_menu(app, &cfg)?;
+    // Deliberately no `.menu()`. A native NSMenu can only draw plain text rows, and while macOS is
+    // free to pop an attached menu on any click, suppressing that per-button proved unreliable.
+    // With no menu attached the click always reaches `on_tray_icon_event`, which opens the panel.
+    // Everything the menu used to offer lives in the panel's own toolbar.
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().expect("bundled icon").clone())
         .tooltip("VibeProxy")
-        .menu(&menu)
-        .on_menu_event(on_menu_event)
+        .on_tray_icon_event(on_tray_event)
         .build(app)?;
     apply_title(&tray, &cfg);
     Ok(())
@@ -32,9 +36,6 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 pub fn refresh(app: &AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
     let cfg = profile::store::load();
-    if let Ok(menu) = build_menu(app, &cfg) {
-        let _ = tray.set_menu(Some(menu));
-    }
     if let Some(state) = app.try_state::<crate::usage::UsageState>() {
         if let Ok(map) = state.try_read() {
             update_icon_and_title(app, &tray, &cfg, &map);
@@ -43,22 +44,6 @@ pub fn refresh(app: &AppHandle) {
     }
     reset_icon(app, &tray);
     apply_title(&tray, &cfg);
-}
-
-fn on_menu_event(app: &AppHandle, event: MenuEvent) {
-    match event.id.as_ref() {
-        "quit" => app.exit(0),
-        "open" => show_main_window(app),
-        "usage" => {
-            let _ = crate::show_usage_window(app);
-        }
-        id => {
-            // A profile row was clicked → make it active.
-            if profile::store::find(id).is_some() {
-                let _ = crate::activate(app, id);
-            }
-        }
-    }
 }
 
 /// macOS: show the active profile's label next to the tray icon. Phase 4 appends live usage.
@@ -72,40 +57,51 @@ fn apply_title(tray: &TrayIcon, cfg: &profile::Config) {
     let _ = tray.set_title(Some(title));
 }
 
-fn build_menu(app: &AppHandle, cfg: &profile::Config) -> tauri::Result<Menu<Wry>> {
-    let mut builder = MenuBuilder::new(app);
+/// Left-click the menubar icon → toggle the panel, anchored under the icon.
+fn on_tray_event(tray: &TrayIcon, event: TrayIconEvent) {
+    // Match on the button only, not the up/down state — see `toggle_debounced`.
+    let TrayIconEvent::Click { button: MouseButton::Left, rect, .. } = event else {
+        return;
+    };
+    let app = tray.app_handle();
+    let Some(win) = app.get_webview_window("main") else { return };
 
-    if cfg.profiles.is_empty() {
-        let empty = MenuItemBuilder::with_id("noop_empty", "No profiles yet")
-            .enabled(false)
-            .build(app)?;
-        builder = builder.item(&empty);
-    } else {
-        for p in &cfg.profiles {
-            let is_active = cfg.active_profile_id.as_deref() == Some(p.id.as_str());
-            let label = format!("{}{}", if is_active { "● " } else { "   " }, p.label);
-            let item = MenuItemBuilder::with_id(p.id.clone(), label).build(app)?;
-            builder = builder.item(&item);
-        }
+    // The panel hides itself when it loses focus, and clicking the tray icon is what takes focus
+    // away. Without this guard the hide-then-click sequence would immediately reopen it.
+    if crate::panel_recently_hidden() || !crate::toggle_debounced() {
+        return;
     }
 
-    let sep = PredefinedMenuItem::separator(app)?;
-    let open = MenuItemBuilder::with_id("open", "Open VibeProxy").build(app)?;
-    let usage = MenuItemBuilder::with_id("usage", "Usage Analytics…").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Quit VibeProxy").build(app)?;
-    builder
-        .item(&sep)
-        .item(&open)
-        .item(&usage)
-        .item(&quit)
-        .build()
+    if win.is_visible().unwrap_or(false) {
+        let _ = win.hide();
+        return;
+    }
+    anchor_under_tray(&win, rect);
+    let _ = win.show();
+    let _ = win.set_focus();
 }
 
-fn show_main_window(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
-        let _ = win.set_focus();
+/// Centre the window horizontally on the tray icon, just below the menubar. Clamped to the icon's
+/// monitor so a panel anchored near a screen edge stays fully on screen.
+fn anchor_under_tray(win: &tauri::WebviewWindow, rect: Rect) {
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let icon = rect.position.to_logical::<f64>(scale);
+    let icon_sz = rect.size.to_logical::<f64>(scale);
+    let Ok(win_sz) = win.outer_size() else { return };
+    let win_w = win_sz.to_logical::<f64>(scale).width;
+
+    let mut x = icon.x + icon_sz.width / 2.0 - win_w / 2.0;
+    let y = icon.y + icon_sz.height + PANEL_GAP;
+
+    if let Ok(Some(mon)) = win.monitor_from_point(icon.x, icon.y) {
+        let m_pos = mon.position().to_logical::<f64>(scale);
+        let m_size = mon.size().to_logical::<f64>(scale);
+        let min_x = m_pos.x + PANEL_GAP;
+        let max_x = m_pos.x + m_size.width - win_w - PANEL_GAP;
+        x = x.clamp(min_x, max_x.max(min_x));
     }
+
+    let _ = win.set_position(LogicalPosition::new(x, y));
 }
 
 /// Update the tray for the active profile's latest usage (called by the poller).

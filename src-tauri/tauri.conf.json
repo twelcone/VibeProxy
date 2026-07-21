@@ -10,13 +10,19 @@
     "frontendDist": "../build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "VibeProxy",
-        "width": 420,
-        "height": 560,
+        "width": 400,
+        "height": 580,
         "visible": false,
-        "resizable": true
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true
       }
     ],
     "security": {

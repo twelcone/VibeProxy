@@ -224,6 +224,7 @@
   }
 </script>
 
+<div class="shell">
 <main>
   <header>
     <span class="mark" aria-hidden="true"><Icon name="swap" size={17} /></span>
@@ -390,12 +391,20 @@
   <button onclick={openUsage}><Icon name="chart" size={13} />Analytics</button>
   <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}><Icon name="settings" size={13} />Settings</button>
   <button class="icon" title="Refresh" aria-label="Refresh" onclick={() => { refresh(); loadStats(); }}><Icon name="refresh" size={14} /></button>
+  <button class="icon danger" title="Quit VibeProxy" aria-label="Quit VibeProxy" onclick={() => invoke("quit_app")}><Icon name="power" size={14} /></button>
 </nav>
+</div>
 
 <style>
   /* Color/type tokens live in src/lib/styles/tokens.css (shared with the Usage window). */
-  /* Bottom padding clears the fixed toolbar. */
-  main { padding: 14px 16px 58px; }
+  /* This window is an undecorated, transparent tray panel, so the rounded surface is drawn here
+     rather than by the OS title bar. */
+  :global(html), :global(body) { background: transparent; }
+  .shell {
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 12px;
+  }
+  main { flex: 1; overflow-y: auto; padding: 14px 16px 16px; }
 
   .sec-head { display: flex; align-items: baseline; gap: 8px; }
   .sec-head h2 { flex: 1; }
@@ -403,7 +412,7 @@
 
   /* Pinned so navigation stays reachable however long the account list gets. */
   .toolbar {
-    position: fixed; inset: auto 0 0 0; display: flex; align-items: center; gap: 2px;
+    flex: none; display: flex; align-items: center; gap: 2px;
     padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--hair);
   }
   .toolbar button {
@@ -413,7 +422,9 @@
   }
   .toolbar button:hover { background: var(--panel-2); color: var(--ink); }
   .toolbar button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-  .toolbar .icon { margin-left: auto; font-size: .9rem; }
+  .toolbar .icon { padding: 5px 7px; }
+  .toolbar .icon:first-of-type, .toolbar button:nth-last-child(2) { margin-left: auto; }
+  .toolbar .danger:hover { color: var(--crit); background: color-mix(in srgb, var(--crit) 12%, transparent); }
   header { display: flex; align-items: center; gap: 10px; }
   .mark {
     display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
