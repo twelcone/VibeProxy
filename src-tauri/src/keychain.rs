@@ -110,6 +110,42 @@ pub fn item_account(config_dir: &Path) -> Result<String, String> {
         .ok_or_else(|| format!("could not read acct attribute for service {service}"))
 }
 
+/// Where a profile's ORIGINAL credentials are preserved before a hot-swap displaces them.
+///
+/// Kept in the Keychain rather than on disk: these are live OAuth tokens, and the app's whole
+/// security posture is that they never land in a plaintext file.
+pub fn backup_service_name(config_dir: &Path) -> String {
+    format!("VibeProxy-backup-{}", service_name(config_dir).trim_start_matches("Claude Code-credentials"))
+        .replace("VibeProxy-backup--", "VibeProxy-backup-")
+}
+
+/// Snapshot a profile's current credentials, ONCE. Only the first call stores anything: the point is
+/// to preserve the account that genuinely owns this directory, not the most recent thing swapped
+/// into it. Without this, a swap destroys the displaced account's only copy of its token.
+pub fn backup_once(config_dir: &Path, acct: &str, blob: &Blob) -> Result<(), String> {
+    let service = backup_service_name(config_dir);
+    if read_service(&service).is_ok() {
+        return Ok(()); // original already preserved
+    }
+    write_service(&service, acct, blob)
+}
+
+/// Read a previously preserved snapshot, if one exists.
+pub fn read_backup(config_dir: &Path) -> Result<Blob, String> {
+    read_service(&backup_service_name(config_dir))
+}
+
+fn read_service(service: &str) -> Result<Blob, String> {
+    let out = Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", service, "-w"])
+        .output()
+        .map_err(|e| format!("could not run security: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("no keychain item for service {service}"));
+    }
+    Ok(Blob(String::from_utf8_lossy(&out.stdout).to_string()))
+}
+
 /// Re-wrap a merged JSON value as a writable blob.
 pub fn blob_from_value(v: &serde_json::Value) -> Result<Blob, String> {
     serde_json::to_string(v).map(Blob).map_err(|e| format!("serialize keychain blob: {e}"))
@@ -123,10 +159,13 @@ pub fn blob_from_value(v: &serde_json::Value) -> Result<Blob, String> {
 /// - The command is fed through stdin (`security -i`), never argv, so the secret never appears in
 ///   `ps` output for any other process on the machine.
 pub fn write_blob(config_dir: &Path, acct: &str, blob: &Blob) -> Result<(), String> {
+    write_service(&service_name(config_dir), acct, blob)
+}
+
+fn write_service(service: &str, acct: &str, blob: &Blob) -> Result<(), String> {
     use std::io::Write as _;
     use std::process::Stdio;
 
-    let service = service_name(config_dir);
     let mut child = Command::new("/usr/bin/security")
         .arg("-i")
         .stdin(Stdio::piped())
@@ -139,7 +178,7 @@ pub fn write_blob(config_dir: &Path, acct: &str, blob: &Blob) -> Result<(), Stri
     let cmd = format!(
         "add-generic-password -U -a {} -s {} -w {}\n",
         quote(acct),
-        quote(&service),
+        quote(service),
         quote(blob.as_str().trim()),
     );
 
@@ -217,6 +256,59 @@ mod tests {
         cleanup();
         assert!(read_blob(&dir).is_err(), "cleanup removed the test item");
         eprintln!("keychain round-trip OK for {service}");
+    }
+
+    /// Regression for a data-loss bug: hot-swap overwrote the target's credentials without
+    /// preserving them, and the target dir was their only home. One swap destroyed an account's
+    /// token and left two profiles pointing at the same one.
+    /// Run with `cargo test backup_preserves -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "writes to the real macOS login keychain"]
+    fn backup_preserves_the_displaced_account_and_never_overwrites_itself() {
+        let dir = PathBuf::from(format!("/tmp/vp-backup-test-{}", std::process::id()));
+        let live = service_name(&dir);
+        let backup = backup_service_name(&dir);
+        assert_ne!(live, backup, "backup must not collide with the live item");
+
+        let del = |svc: &str| {
+            let _ = Command::new("/usr/bin/security")
+                .args(["delete-generic-password", "-s", svc])
+                .output();
+        };
+        let cleanup = || {
+            del(&live);
+            del(&backup);
+        };
+        cleanup();
+
+        let original = serde_json::json!({"claudeAiOauth": {"accessToken": "ORIGINAL-owner"}});
+        write_blob(&dir, "acct@example.invalid", &blob_from_value(&original).unwrap()).unwrap();
+
+        // First swap: snapshot, then displace.
+        let before = read_blob(&dir).unwrap();
+        backup_once(&dir, "acct@example.invalid", &before).unwrap();
+        let intruder = serde_json::json!({"claudeAiOauth": {"accessToken": "SWAPPED-in"}});
+        write_blob(&dir, "acct@example.invalid", &blob_from_value(&intruder).unwrap()).unwrap();
+
+        assert_eq!(
+            read_blob(&dir).unwrap().parse().unwrap()["claudeAiOauth"]["accessToken"],
+            "SWAPPED-in", "live item now holds the swapped account"
+        );
+        assert_eq!(
+            read_backup(&dir).unwrap().parse().unwrap()["claudeAiOauth"]["accessToken"],
+            "ORIGINAL-owner", "the displaced account survived"
+        );
+
+        // Second swap must NOT overwrite the snapshot, or the true owner is lost after all.
+        let now = read_blob(&dir).unwrap();
+        backup_once(&dir, "acct@example.invalid", &now).unwrap();
+        assert_eq!(
+            read_backup(&dir).unwrap().parse().unwrap()["claudeAiOauth"]["accessToken"],
+            "ORIGINAL-owner", "snapshot still points at the true owner after a second swap"
+        );
+
+        cleanup();
+        eprintln!("backup regression OK: original preserved across 2 swaps");
     }
 
     #[test]

@@ -89,6 +89,14 @@ async fn export_usage_csv(range: Option<usage_analytics::Range>, path: String) -
     .map_err(|e| format!("export task failed: {e}"))?
 }
 
+/// Put a profile's own account back into its config dir, undoing any hot-swap applied to it.
+#[tauri::command]
+fn restore_profile_credentials(id: String) -> Result<(), String> {
+    let p = store::find(&id).ok_or("no such profile")?;
+    switch::hotswap::restore_original(Path::new(&p.config_dir), &p.id, &p.label)
+        .map_err(|e| e.to_string())
+}
+
 /// Quit. Lives in the panel toolbar now that the tray has no native menu.
 #[tauri::command]
 fn quit_app(app: AppHandle) {
@@ -364,6 +372,7 @@ pub fn run() {
             export_usage_csv,
             refresh_usage_analytics,
             quit_app,
+            restore_profile_credentials,
             open_usage_window,
             adopt_profile,
             begin_add_profile,

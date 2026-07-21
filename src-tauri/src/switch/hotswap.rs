@@ -84,6 +84,11 @@ pub fn swap_into(
     let merged = merge_account_into(&target_json, &source_json);
     let acct = keychain::item_account(target_dir).map_err(SwapError::Read)?;
 
+    // Preserve what we are about to displace, BEFORE displacing it. The target dir's credentials
+    // live in exactly one place; overwriting them without a snapshot destroys that account's only
+    // copy and leaves two profiles pointing at the same token, which jams auto-switch entirely.
+    keychain::backup_once(target_dir, &acct, &target).map_err(SwapError::Write)?;
+
     let blob = keychain::blob_from_value(&merged).map_err(SwapError::Write)?;
     keychain::write_blob(target_dir, &acct, &blob).map_err(SwapError::Write)?;
 
@@ -102,6 +107,41 @@ pub fn swap_into(
         config_dir: target_dir.to_string_lossy().to_string(),
         account_id: account_id.to_string(),
         account_label: account_label.to_string(),
+    })
+    .map_err(|e| SwapError::Journal(e.to_string()))
+}
+
+/// Put a directory's original account back, undoing every swap ever applied to it.
+///
+/// The snapshot is taken once, on the first swap, so this always restores the account that genuinely
+/// owns the directory rather than whatever was most recently swapped in.
+pub fn restore_original(config_dir: &Path, owner_id: &str, owner_label: &str) -> Result<(), SwapError> {
+    let _guard = locks::acquire(&locks::claude_lock_paths(), 5, Duration::from_millis(120))
+        .ok_or(SwapError::Locked)?;
+
+    let backup = keychain::read_backup(config_dir).map_err(SwapError::Read)?;
+    let backup_json = backup.parse().map_err(SwapError::Read)?;
+    let current = keychain::read_blob(config_dir).map_err(SwapError::Read)?;
+    let current_json = current.parse().map_err(SwapError::Read)?;
+
+    // Only the account identity goes back; machine-bound state stays as it is now.
+    let restored = merge_account_into(&current_json, &backup_json);
+    let want = identity_of(&backup_json).ok_or(SwapError::VerifyFailed)?;
+    let acct = keychain::item_account(config_dir).map_err(SwapError::Read)?;
+    let blob = keychain::blob_from_value(&restored).map_err(SwapError::Write)?;
+    keychain::write_blob(config_dir, &acct, &blob).map_err(SwapError::Write)?;
+
+    let after = keychain::read_blob(config_dir).map_err(SwapError::Read)?;
+    if identity_of(&after.parse().map_err(SwapError::Read)?).as_deref() != Some(want.as_str()) {
+        return Err(SwapError::VerifyFailed);
+    }
+    bump_credentials_mtime(config_dir);
+
+    journal::append(&journal::Boundary {
+        at: chrono::Utc::now().to_rfc3339(),
+        config_dir: config_dir.to_string_lossy().to_string(),
+        account_id: owner_id.to_string(),
+        account_label: owner_label.to_string(),
     })
     .map_err(|e| SwapError::Journal(e.to_string()))
 }
