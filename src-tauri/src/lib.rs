@@ -158,9 +158,9 @@ pub(crate) fn show_usage_window(app: &AppHandle) -> tauri::Result<()> {
         win.unminimize().ok();
         return win.set_focus();
     }
-    // Dev serves the SvelteKit route directly; the static build emits `usage.html`.
-    let path = if tauri::is_dev() { "usage" } else { "usage.html" };
-    WebviewWindowBuilder::new(app, USAGE_WINDOW, WebviewUrl::App(path.into()))
+    // One path for dev and prod. The route prerenders to `usage/index.html`, so `/usage/` is a
+    // real pathname the client router matches — `usage.html` loaded but routed to a 404.
+    WebviewWindowBuilder::new(app, USAGE_WINDOW, WebviewUrl::App("usage/".into()))
         .title("Usage Analytics")
         .inner_size(900.0, 700.0)
         .min_inner_size(640.0, 480.0)
