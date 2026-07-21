@@ -15,7 +15,7 @@
       {
         "title": "VibeProxy",
         "width": 400,
-        "height": 580,
+        "height": 640,
         "visible": false,
         "resizable": false,
         "decorations": false,
@@ -33,7 +33,7 @@
     "active": true,
     "targets": "all",
     "category": "Productivity",
-    "copyright": "© 2026 twelcone. MIT licensed.",
+    "copyright": "\u00a9 2026 twelcone. MIT licensed.",
     "shortDescription": "Switch between Claude Code accounts from the menubar.",
     "macOS": {
       "minimumSystemVersion": "13.0"

@@ -399,7 +399,17 @@
   /* Color/type tokens live in src/lib/styles/tokens.css (shared with the Usage window). */
   /* This window is an undecorated, transparent tray panel, so the rounded surface is drawn here
      rather than by the OS title bar. */
-  :global(html), :global(body) { background: transparent; }
+  /* `html:root` (0,1,1) outranks tokens.css's `:root` (0,1,0). A plain `html` selector loses to it,
+     which left an opaque square painted behind the shell's rounded corners. */
+  :global(html:root), :global(body) { background: transparent; }
+  /* The webview draws a persistent scrollbar where macOS would fade an overlay one; make it thin
+     and only visible while the pointer is over the panel. */
+  :global(::-webkit-scrollbar) { width: 7px; }
+  :global(::-webkit-scrollbar-track) { background: transparent; }
+  :global(::-webkit-scrollbar-thumb) {
+    background: transparent; border-radius: 4px; border: 2px solid transparent; background-clip: padding-box;
+  }
+  .shell:hover :global(::-webkit-scrollbar-thumb) { background: var(--panel-3); background-clip: padding-box; }
   .shell {
     height: 100vh; display: flex; flex-direction: column; overflow: hidden;
     background: var(--panel); border: 1px solid var(--hair); border-radius: 12px;
