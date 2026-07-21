@@ -146,12 +146,19 @@
 
   const sev = (v: number) => (v >= 90 ? "crit" : v >= 70 ? "warn" : "good");
 
+  /** Compact because it sits in a narrow trailing column beside the bar, not on its own line. */
   function resetsIn(iso: string | null): string {
     if (!iso) return "";
     const ms = new Date(iso).getTime() - Date.now();
-    if (ms <= 0) return "resetting…";
+    if (ms <= 0) return "resetting";
     const m = Math.round(ms / 60000);
-    return m >= 60 ? `resets in ${Math.floor(m / 60)}h ${m % 60}m` : `resets in ${m}m`;
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+  }
+
+  /** Weekly windows reset days out, so a weekday name reads better than a countdown. */
+  function resetDay(iso: string | null): string {
+    if (!iso) return "";
+    return new Date(iso).toLocaleDateString(undefined, { weekday: "short" });
   }
 
   async function switchTo(id: string) {
@@ -264,7 +271,7 @@
              since it is state rather than something you can click. -->
         <div class="actions">
           {#if p.id === activeId}
-            <button class="btn" onclick={relaunch} title="Open a terminal on this account">Relaunch</button>
+            <button class="btn icon" onclick={relaunch} title="Open a terminal on this account" aria-label="Open a terminal on this account"><Icon name="swap" size={14} /></button>
           {:else}
             <button class="btn" onclick={() => switchTo(p.id)}>Switch</button>
           {/if}
@@ -275,16 +282,17 @@
             <span class="nodata">no usage data yet</span>
           {:else}
           <div class="metric">
-            <span class="k">5-hour</span>
+            <span class="k">5h</span>
             <span class="bar"><i class={u?.fiveHourPct != null ? `fill-${sev(u.fiveHourPct)}` : ""} style={`width:${u?.fiveHourPct ?? 0}%`}></i></span>
             <span class="v">{u?.fiveHourPct != null ? Math.round(u.fiveHourPct) + "%" : "—"}</span>
+            <span class="t">{resetsIn(u?.fiveHourResetsAt ?? null)}</span>
           </div>
           <div class="metric">
-            <span class="k">weekly</span>
+            <span class="k">wk</span>
             <span class="bar"><i class={u?.weeklyPct != null ? `fill-${sev(u.weeklyPct)}` : ""} style={`width:${u?.weeklyPct ?? 0}%`}></i></span>
             <span class="v">{u?.weeklyPct != null ? Math.round(u.weeklyPct) + "%" : "—"}</span>
+            <span class="t">{resetDay(u?.weeklyResetsAt ?? null)}</span>
           </div>
-          {#if u?.fiveHourResetsAt}<div class="reset">{resetsIn(u.fiveHourResetsAt)}</div>{/if}
           {/if}
         </div>
       </div>
@@ -480,16 +488,16 @@
   .btn.icon { padding: 4px 9px; font-size: .95rem; line-height: 1; }
   /* Long addresses truncate rather than break-all, which used to split them mid-word across
      three lines. Full value stays available via the title attribute. */
-  .email { font-size: .78rem; color: var(--ink-soft); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .email { font-size: .72rem; color: var(--ink-soft); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .actions { display: flex; gap: 6px; align-items: start; }
-  .usage { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 4px 16px; align-items: center; }
-  .metric { display: flex; align-items: center; gap: 7px; }
-  .metric .k { font-size: .68rem; color: var(--ink-faint); width: 42px; }
-  .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--bar); overflow: hidden; }
+  .usage { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; }
+  .metric { display: grid; grid-template-columns: 22px 1fr 34px 46px; align-items: center; gap: 8px; }
+  .metric .k { font-size: .68rem; color: var(--ink-faint); }
+  .metric .t { font-size: .68rem; color: var(--ink-faint); text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; border-radius: 3px; background: var(--bar); overflow: hidden; }
   .bar > i { display: block; height: 100%; border-radius: 3px; transition: width .3s ease-out; }
   .fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
-  .metric .v { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--ink-soft); width: 34px; text-align: right; }
-  .reset { grid-column: 1 / -1; font-size: .7rem; color: var(--ink-faint); }
+  .metric .v { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; text-align: right; }
 
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   input { flex: 1; min-width: 120px; font: inherit; font-size: .85rem; padding: 6px 9px; border: 1px solid var(--hair); border-radius: 7px; background: var(--panel); color: var(--ink); }

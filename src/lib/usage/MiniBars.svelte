@@ -16,11 +16,11 @@
 
   const max = $derived(Math.max(1, ...days.map((d) => d.value)));
 
-  /** Single-letter weekday, e.g. `M` — the popover is too narrow for `Mon`. */
+  /** Short weekday, e.g. `Mon`. Single letters were ambiguous: S/S and T/T repeat. */
   function initial(iso: string): string {
     const [y, m, d] = iso.split("-").map(Number);
     if (!y || !m || !d) return "";
-    return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "narrow" });
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short" });
   }
 </script>
 
@@ -46,8 +46,8 @@
   .bars {
     display: flex;
     align-items: flex-end;
-    gap: 4px;
-    height: 54px;
+    gap: 3px;
+    height: 70px;
   }
   .col {
     flex: 1;
@@ -64,7 +64,7 @@
   }
   .labels {
     display: flex;
-    gap: 4px;
+    gap: 3px;
   }
   .labels span {
     flex: 1;
