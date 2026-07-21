@@ -111,6 +111,14 @@ fn install_shell_integration() -> Result<String, String> {
     shell::install()
 }
 
+/// Mark first-run setup complete so the onboarding screen isn't shown again.
+#[tauri::command]
+fn complete_onboarding() -> Result<(), String> {
+    let mut s = store::load().settings;
+    s.onboarded = true;
+    store::set_settings(s).map_err(|e| e.to_string())
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ShellStatus {
@@ -396,6 +404,7 @@ pub fn run() {
             restore_profile_credentials,
             shell_integration_status,
             install_shell_integration,
+            complete_onboarding,
             open_usage_window,
             adopt_profile,
             begin_add_profile,

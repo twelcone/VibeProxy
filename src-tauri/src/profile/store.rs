@@ -55,6 +55,11 @@ pub struct Settings {
     /// credentials rather than only reading them.
     #[serde(default)]
     pub hot_swap_enabled: bool,
+    /// Whether the user has been through first-run setup. Absent in an older config → false →
+    /// existing users get the one-time onboarding once (which is desirable: it's how they discover
+    /// the shell integration they're probably missing).
+    #[serde(default)]
+    pub onboarded: bool,
 }
 
 impl Default for Settings {
@@ -67,6 +72,7 @@ impl Default for Settings {
             launch_at_login: false,
             monthly_cost_usd: HashMap::new(),
             hot_swap_enabled: false,
+            onboarded: false,
         }
     }
 }

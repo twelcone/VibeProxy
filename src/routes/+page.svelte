@@ -21,7 +21,7 @@
   type AddState = { configDir: string; label: string; message: string; error: boolean };
   type Settings = {
     autoSwitchEnabled: boolean; thresholdPct: number; pollIntervalSecs: number;
-    cooldownSecs: number; launchAtLogin: boolean; hotSwapEnabled: boolean;
+    cooldownSecs: number; launchAtLogin: boolean; hotSwapEnabled: boolean; onboarded: boolean;
   };
 
   let profiles = $state<Profile[]>([]);
@@ -49,7 +49,7 @@
   let installMsg = $state("");
 
   /** The popover is usage-first; configuration lives behind the toolbar's Settings tab. */
-  let view = $state<"home" | "settings">("home");
+  let view = $state<"home" | "settings" | "onboarding">("home");
   let mainEl = $state<HTMLElement | null>(null);
   let barEl = $state<HTMLElement | null>(null);
   let lastFitHeight = 0;
@@ -147,6 +147,11 @@
       installMsg = `Added to ${file}. Open a new terminal for it to take effect.`;
     } catch (e) { installMsg = `Couldn't install: ${e}`; }
   }
+  async function finishOnboarding() {
+    try { await invoke("complete_onboarding"); } catch { /* non-fatal */ }
+    if (settings) settings = { ...settings, onboarded: true };
+    view = "home";
+  }
   async function openUsage() {
     try { await invoke("open_usage_window"); } catch (e) { banner = `${e}`; }
   }
@@ -158,7 +163,8 @@
   onMount(async () => {
     await refresh();
     loadStats();
-    checkShellIntegration();
+    await checkShellIntegration();
+    if (settings && !settings.onboarded) view = "onboarding";
     if (mainEl) {
       const ro = new ResizeObserver(fitWindowToContent);
       // Observe the content, not the clamped shell.
@@ -502,7 +508,7 @@
   {/if}
 </main>
 
-<nav class="toolbar" bind:this={barEl}>
+<nav class="toolbar" bind:this={barEl} class:hidden={view === "onboarding"}>
   <button class:on={view === "home"} aria-pressed={view === "home"} onclick={() => (view = "home")}><Icon name="home" size={13} />Home</button>
   <button onclick={openUsage}><Icon name="chart" size={13} />Analytics</button>
   <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}><Icon name="settings" size={13} />Settings</button>
@@ -647,6 +653,17 @@
   .warn-banner b { font-size:.82rem; }
   .warn-banner span { font-size:.75rem; color:var(--ink-soft); }
   .warn-banner .btn { margin-left:auto; white-space:nowrap; }
+  .onboard { padding-top: 4px; }
+  .welcome { font-size: 1.05rem; text-transform: none; letter-spacing: 0; color: var(--ink); margin: 8px 0 2px; }
+  .lead { font-size: .85rem; color: var(--ink-soft); margin: 0 0 14px; }
+  .step { border: 1px solid var(--hair); background: var(--panel-2); border-radius: 10px; padding: 12px 13px; margin-bottom: 10px; }
+  .step-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .step-badge { display:grid; place-items:center; width:20px; height:20px; border-radius:50%;
+    background: var(--panel-3); color: var(--ink-soft); font-size:.72rem; font-weight:700; flex:none; }
+  .step-badge.done { background: color-mix(in srgb, var(--good) 20%, transparent); color: var(--good); }
+  .step-body { font-size:.78rem; color: var(--ink-soft); margin:0 0 8px; line-height:1.5; }
+  .step-ok { font-size:.78rem; color: var(--ink-soft); margin:0; }
+  .toolbar.hidden { display: none; }
   code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .85em; background: var(--panel-3); padding: 1px 4px; border-radius: 4px; }
   .snippet { display: flex; align-items: center; gap: 8px; background: var(--panel-3); border-radius: 8px; padding: 8px 10px; }
   .snippet code { font-size: .72rem; color: var(--ink-soft); overflow-x: auto; white-space: nowrap; flex: 1; background: none; padding: 0; }
