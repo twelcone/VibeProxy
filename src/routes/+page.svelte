@@ -45,6 +45,8 @@
   let settings = $state<Settings | null>(null);
   let activity = $state<string[]>([]);
   let copied = $state(false);
+  let shellInstalled = $state<boolean | null>(null); // null = not yet checked
+  let installMsg = $state("");
 
   /** The popover is usage-first; configuration lives behind the toolbar's Settings tab. */
   let view = $state<"home" | "settings">("home");
@@ -132,6 +134,19 @@
     try { settings = await invoke<Settings>("set_settings", { settings }); }
     catch (e) { banner = `${e}`; }
   }
+  async function checkShellIntegration() {
+    try {
+      const st = await invoke<{ installed: boolean }>("shell_integration_status");
+      shellInstalled = st.installed;
+    } catch { shellInstalled = null; }
+  }
+  async function installShellIntegration() {
+    try {
+      const file = await invoke<string>("install_shell_integration");
+      shellInstalled = true;
+      installMsg = `Added to ${file}. Open a new terminal for it to take effect.`;
+    } catch (e) { installMsg = `Couldn't install: ${e}`; }
+  }
   async function openUsage() {
     try { await invoke("open_usage_window"); } catch (e) { banner = `${e}`; }
   }
@@ -143,6 +158,7 @@
   onMount(async () => {
     await refresh();
     loadStats();
+    checkShellIntegration();
     if (mainEl) {
       const ro = new ResizeObserver(fitWindowToContent);
       // Observe the content, not the clamped shell.
@@ -294,6 +310,16 @@
 
   {#if banner}<div class="banner" role="alert">{banner} <button class="x" onclick={() => (banner = "")}>×</button></div>{/if}
   {#if notice}<div class="notice" role="status">{notice} <button class="x" onclick={() => (notice = "")}>×</button></div>{/if}
+
+  {#if view === "home" && shellInstalled === false}
+    <div class="warn-banner" role="status">
+      <div>
+        <b>Switching won't reach your terminals yet.</b>
+        <span>VibeProxy needs one line in your shell profile, or every terminal keeps using the default account.</span>
+      </div>
+      <button class="btn small" onclick={() => (view = "settings")}>Set up</button>
+    </div>
+  {/if}
 
   {#if view === "home"}
   <section>
@@ -450,8 +476,19 @@
 
   <section>
     <h2>Claude Code integration</h2>
-    <p class="hint2">Add this to your shell profile (e.g. <code>~/.zshrc</code>) so new terminals use the active account:</p>
+    {#if shellInstalled === true}
+      <p class="hint2"><span class="ok-dot"></span>Installed — new terminals use the active account.</p>
+    {:else}
+      <p class="hint2">Add this to your shell profile so new terminals use the active account:</p>
+    {/if}
     <div class="snippet"><code>{INTEGRATION_SNIPPET}</code><button class="btn small" onclick={copySnippet}>{copied ? "Copied ✓" : "Copy"}</button></div>
+    {#if shellInstalled !== true}
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary small" onclick={installShellIntegration}>Install it for me</button>
+        <span class="hint2" style="margin:0">appends the line to your shell profile</span>
+      </div>
+    {/if}
+    {#if installMsg}<p class="hint2" style="margin-top:6px">{installMsg}</p>{/if}
   </section>
 
   {#if activity.length}
@@ -602,6 +639,14 @@
   .set .num { width: 64px; font: inherit; padding: 4px 6px; border: 1px solid var(--hair); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .set em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: .8rem; min-width: 34px; text-align: right; }
   .hint2 { font-size: .8rem; color: var(--ink-soft); margin: 0 0 6px; }
+  .ok-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--good); margin-right:6px; }
+  .warn-banner { display:flex; align-items:center; gap:12px; margin:10px 0 4px; padding:10px 12px;
+    border-radius:10px; background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+  .warn-banner div { display:flex; flex-direction:column; gap:2px; }
+  .warn-banner b { font-size:.82rem; }
+  .warn-banner span { font-size:.75rem; color:var(--ink-soft); }
+  .warn-banner .btn { margin-left:auto; white-space:nowrap; }
   code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .85em; background: var(--panel-3); padding: 1px 4px; border-radius: 4px; }
   .snippet { display: flex; align-items: center; gap: 8px; background: var(--panel-3); border-radius: 8px; padding: 8px 10px; }
   .snippet code { font-size: .72rem; color: var(--ink-soft); overflow-x: auto; white-space: nowrap; flex: 1; background: none; padding: 0; }

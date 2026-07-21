@@ -5,6 +5,7 @@ mod autoswitch;
 mod keychain;
 mod onboarding;
 mod platform;
+mod shell;
 mod profile;
 mod switch;
 mod tray;
@@ -95,6 +96,26 @@ fn restore_profile_credentials(id: String) -> Result<(), String> {
     let p = store::find(&id).ok_or("no such profile")?;
     switch::hotswap::restore_original(Path::new(&p.config_dir), &p.id, &p.label)
         .map_err(|e| e.to_string())
+}
+
+/// Shell-integration state for the UI: whether the active-path line is in a shell rc, and the
+/// canonical snippet to display.
+#[tauri::command]
+fn shell_integration_status() -> ShellStatus {
+    ShellStatus { installed: shell::is_installed(), snippet: shell::snippet() }
+}
+
+/// Append the shell integration to the user's rc file (idempotent). Returns the file touched.
+#[tauri::command]
+fn install_shell_integration() -> Result<String, String> {
+    shell::install()
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShellStatus {
+    installed: bool,
+    snippet: String,
 }
 
 /// Quit. Lives in the panel toolbar now that the tray has no native menu.
@@ -373,6 +394,8 @@ pub fn run() {
             refresh_usage_analytics,
             quit_app,
             restore_profile_credentials,
+            shell_integration_status,
+            install_shell_integration,
             open_usage_window,
             adopt_profile,
             begin_add_profile,
