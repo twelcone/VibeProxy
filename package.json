@@ -1,6 +1,6 @@
 {
   "name": "vibeproxy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Switch between multiple Claude Code Pro/Max accounts, track usage, auto-switch on quota.",
   "type": "module",
   "scripts": {

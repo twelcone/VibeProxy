@@ -37,6 +37,20 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "VibeProxy ${{ github.ref_name }}"
           releaseBody: |
+            ## What's new in 0.2.0
+
+            - **Usage Analytics** — a dedicated window with per-account / model / project breakdowns,
+              trend and cache charts, filters, and CSV export, parsed from Claude Code's local logs.
+            - **Menubar panel** — the tray now opens the real UI anchored under the icon, usage-first,
+              instead of a plain text menu.
+            - **First-run setup** — installs the shell integration for you, so switching actually
+              reaches your terminals.
+            - **Switch running sessions** (opt-in, off by default) — moves a live session to another
+              account by swapping its credentials; the displaced account is snapshotted first.
+            - Account identity is now re-checked over time, so a login change made outside VibeProxy
+              is picked up instead of silently breaking auto-switch.
+
+            ---
             Unsigned build. First launch: System Settings → Privacy & Security → **Open Anyway**
             (or `xattr -dr com.apple.quarantine /Applications/VibeProxy.app`). See the README.
           releaseDraft: true

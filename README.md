@@ -77,9 +77,18 @@ Requires Rust (stable), Node 20+, pnpm, and Xcode Command Line Tools.
 
 ## Privacy & security
 
-- Your OAuth tokens stay in the macOS Keychain; VibeProxy reads them only to query your own usage and
-  never writes them to disk or logs.
-- VibeProxy never sends your token to any inference endpoint or third party.
+- Your OAuth tokens live in the macOS Keychain. VibeProxy reads them to query your own usage, and
+  never writes them to a plaintext file or to logs.
+- **Switching running sessions** (off by default) is the one feature that *writes* credentials: to
+  move a live session to another account it copies that account's token into the Keychain item of
+  the directory the session is using, and touches that directory's `.credentials.json` to prompt a
+  reload. The displaced account's original token is first snapshotted into a VibeProxy-owned Keychain
+  item so it is never lost, and can be restored. With this setting off, VibeProxy only ever *reads*
+  credentials.
+- VibeProxy never sends your token to any inference endpoint or third party. It talks only to
+  Anthropic's own usage endpoint, with your own token, to read your own numbers.
+- The shell integration and the "Switch running sessions" toggle write to files you own — your shell
+  profile and the Keychain respectively — and only when you enable them.
 - Removing an account from VibeProxy leaves its Claude login untouched.
 
 ## License
