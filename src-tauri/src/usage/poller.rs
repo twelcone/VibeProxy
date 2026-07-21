@@ -17,6 +17,12 @@ use tokio::sync::RwLock;
 /// Poll inactive profiles once every N ticks (active profile is every tick).
 const INACTIVE_EVERY: u64 = 5;
 
+/// Re-check who each profile is actually logged in as, every N ticks (~10 min at the default
+/// interval). Stored identity is a cache, not a fact: a user can log out and back in directly in
+/// Claude Code, and nothing notifies us. Stale identity silently defeats the duplicate-account
+/// guard, which in turn makes auto-switch fail over to the account it just left.
+const IDENTITY_EVERY: u64 = 5;
+
 /// Shared, last-known usage per profile id.
 pub type UsageState = Arc<RwLock<HashMap<String, ProfileUsage>>>;
 
@@ -30,6 +36,10 @@ pub fn spawn(app: AppHandle, state: UsageState) {
             let interval = cfg.settings.poll_interval_secs.max(60);
             let active_id = cfg.active_profile_id.clone();
             let known: HashSet<String> = state.read().await.keys().cloned().collect();
+
+            if tick % IDENTITY_EVERY == 0 {
+                refresh_identities(&app, &cfg).await;
+            }
 
             for p in &cfg.profiles {
                 let is_active = Some(&p.id) == active_id.as_ref();
@@ -58,6 +68,44 @@ pub fn spawn(app: AppHandle, state: UsageState) {
             tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
         }
     });
+}
+
+/// Re-read each profile's account identity from the official client and persist any change.
+///
+/// This is the same `claude auth status` call the poller already makes to keep inactive tokens
+/// warm — previously the result was discarded. Emits `profiles-updated` only when something
+/// actually changed, so the UI is not re-rendered on every tick.
+async fn refresh_identities(app: &AppHandle, cfg: &profile::Config) {
+    let mut changed = false;
+    for p in &cfg.profiles {
+        let dir = PathBuf::from(&p.config_dir);
+        let Ok(Ok(status)) =
+            tauri::async_runtime::spawn_blocking(move || profile::account_meta::fetch(&dir)).await
+        else {
+            continue; // `claude` missing or erroring — leave the cache alone
+        };
+        // A logged-out dir keeps its last known identity: blanking it would lose the record of
+        // which account the profile is *supposed* to be, which is what re-login restores.
+        if !status.logged_in {
+            continue;
+        }
+        if status.email == p.email
+            && status.org_id == p.org_id
+            && status.subscription_type == p.subscription_type
+        {
+            continue;
+        }
+        let mut updated = p.clone();
+        updated.email = status.email;
+        updated.org_id = status.org_id;
+        updated.subscription_type = status.subscription_type;
+        if profile::store::update_profile(updated).is_ok() {
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = app.emit("profiles-updated", ());
+    }
 }
 
 async fn poll_one(profile_id: &str, config_dir: PathBuf, is_active: bool) -> ProfileUsage {

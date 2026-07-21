@@ -157,6 +157,12 @@
       }),
     );
     unlisteners.push(
+      await listen("profiles-updated", async () => {
+        // An account was re-logged-in outside VibeProxy; stored identity has just been corrected.
+        await refresh();
+      }),
+    );
+    unlisteners.push(
       await listen<{ from: string; to: string; pct: number }>("auto-switched", async (e) => {
         notice = `Auto-switched to ${e.payload.to} — ${e.payload.from} hit ${e.payload.pct}%.`;
         logActivity(`Auto-switched to ${e.payload.to} (${e.payload.from} hit ${e.payload.pct}%)`);
@@ -175,6 +181,19 @@
   });
 
   const sev = (v: number) => (v >= 90 ? "crit" : v >= 70 ? "warn" : "good");
+
+  /**
+   * Profiles that resolve to the same Anthropic account. This happens when a user logs out and back
+   * in directly in Claude Code — the profile still exists but now points at a different account, and
+   * two of them can silently converge. Worth surfacing: a duplicate is not a fallback, so auto-switch
+   * has nowhere to go even though the list looks like it does.
+   */
+  const duplicateOrgs = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const p of profiles) if (p.orgId) counts.set(p.orgId, (counts.get(p.orgId) ?? 0) + 1);
+    return new Set([...counts].filter(([, n]) => n > 1).map(([org]) => org));
+  });
+  const isDuplicate = (p: Profile) => !!p.orgId && duplicateOrgs.has(p.orgId);
 
   /** Compact because it sits in a narrow trailing column beside the bar, not on its own line. */
   function resetsIn(iso: string | null): string {
@@ -292,6 +311,7 @@
             {p.label}
             {#if p.id === activeId}<span class="chip on">active</span>{/if}
             {#if p.subscriptionType}<span class="tier">{p.subscriptionType}</span>{/if}
+            {#if isDuplicate(p)}<span class="chip warn" title="Another profile is signed in to this same account, so it can't act as a fallback">same account</span>{/if}
             {#if u?.status === "needsReauth"}<span class="chip crit">re-login</span>{/if}
             {#if u?.fiveHourPct != null && u.fiveHourPct >= 90}<span class="chip crit">near limit</span>{/if}
           </div>
@@ -524,6 +544,7 @@
     padding: 1px 5px; border-radius: 5px; font-weight: 700; }
   .chip { font-size: .62rem; text-transform: uppercase; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
   .chip.crit { color: var(--crit); background: color-mix(in srgb, var(--crit) 14%, transparent); }
+  .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
   .chip.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
   .actions { flex-wrap: nowrap; }
   /* Grid items default to min-width:auto and refuse to shrink below their content, which pushed

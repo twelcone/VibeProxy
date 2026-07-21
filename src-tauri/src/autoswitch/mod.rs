@@ -49,10 +49,24 @@ pub fn decide(cfg: &Config, usage: &HashMap<String, ProfileUsage>, cooling: bool
 
     // Eligible = a different profile with fresh Ok usage, 5-hour below (threshold - hysteresis),
     // and weekly not itself at/over threshold. Prefer lowest priority, then lowest 5-hour usage.
+    // A profile on the SAME account as the active one is not a fallback — switching to it changes
+    // nothing and the quota it reports is the quota we are already out of. Identity drifts when a
+    // user logs out and back in outside VibeProxy, so two profiles can silently converge on one
+    // account; `adopt_profile` only de-dupes at add time, which is too early to catch that.
+    let active_org = cfg
+        .profiles
+        .iter()
+        .find(|p| p.id == active_id)
+        .and_then(|p| p.org_id.clone());
+
     let mut candidates: Vec<_> = cfg
         .profiles
         .iter()
         .filter(|p| p.id != active_id)
+        .filter(|p| match (&active_org, &p.org_id) {
+            (Some(a), Some(b)) => a != b,
+            _ => true, // unknown identity on either side — fall back to usage-based judgement
+        })
         .filter(|p| match usage.get(&p.id) {
             Some(u) if u.status == UsageStatus::Ok => {
                 u.five_hour_pct.is_some_and(|v| v < thr - HYSTERESIS)
@@ -222,6 +236,39 @@ mod tests {
         let over = HashMap::from([("a".to_string(), usage("a", 95.0)), ("b".to_string(), usage("b", 10.0))]);
         assert_eq!(decide(&cfg("a", 90, false), &over, false), Decision::None); // disabled
         assert_eq!(decide(&cfg("a", 90, true), &over, true), Decision::None); // cooling
+    }
+
+    /// Two profiles on one account look like a fallback pair but are not: switching to the twin
+    /// leaves the user on the same exhausted quota while reporting success.
+    #[test]
+    fn a_profile_on_the_same_account_is_not_a_fallback() {
+        let mut c = cfg("a", 90, true);
+        c.profiles[0].org_id = Some("org-1".into());
+        c.profiles[1].org_id = Some("org-1".into()); // same account, drifted after a re-login
+        let u = HashMap::from([("a".to_string(), usage("a", 95.0)), ("b".to_string(), usage("b", 10.0))]);
+        assert!(
+            matches!(decide(&c, &u, false), Decision::Blocked { .. }),
+            "must report blocked, not switch to the same account"
+        );
+    }
+
+    #[test]
+    fn distinct_accounts_still_switch() {
+        let mut c = cfg("a", 90, true);
+        c.profiles[0].org_id = Some("org-1".into());
+        c.profiles[1].org_id = Some("org-2".into());
+        let u = HashMap::from([("a".to_string(), usage("a", 95.0)), ("b".to_string(), usage("b", 10.0))]);
+        assert!(matches!(decide(&c, &u, false), Decision::Switch { .. }));
+    }
+
+    /// Unknown identity must not silently disable failover.
+    #[test]
+    fn unknown_org_falls_back_to_usage_based_judgement() {
+        let mut c = cfg("a", 90, true);
+        c.profiles[0].org_id = None;
+        c.profiles[1].org_id = None;
+        let u = HashMap::from([("a".to_string(), usage("a", 95.0)), ("b".to_string(), usage("b", 10.0))]);
+        assert!(matches!(decide(&c, &u, false), Decision::Switch { .. }));
     }
 
     #[test]
