@@ -8,6 +8,7 @@
   import CacheChart from "$lib/usage/CacheChart.svelte";
   import Filters, { type Granularity, type RangePreset } from "$lib/usage/Filters.svelte";
   import ExportMenu from "$lib/usage/ExportMenu.svelte";
+  import Icon from "$lib/ui/Icon.svelte";
   import { weekStart } from "$lib/chart/svg";
   import { seriesColor } from "$lib/series-palette";
   import { fullTokens, modelName, pct, perMtok, projectName, tokens, usd } from "$lib/format";
@@ -330,18 +331,22 @@
 
     <section class="kpis">
       <KpiCard label="Total tokens" value={tokens(totalTokens)} title={fullTokens(totalTokens)}
+        icon="hash" tint="var(--series-1)"
         sub={modelFilterActive ? "selected models" : `${fullTokens(data.messageCount)} messages`} />
       <KpiCard label="API-equivalent value" value={usd(filteredTotals.value)}
+        icon="dollar" tint="var(--good)"
         sub="what these tokens would cost on the API" />
       <KpiCard label="Daily average" value={tokens(dailyAverage)} title={fullTokens(Math.round(dailyAverage))}
+        icon="trending" tint="var(--series-2)"
         sub={`over ${activeDays} active ${activeDays === 1 ? "day" : "days"}`} />
       <KpiCard label="Tokens today" value={tokens(todayTokens)} title={fullTokens(todayTokens)}
+        icon="calendar" tint="var(--series-3)"
         sub={todayIso} />
     </section>
 
     <section>
       <div class="section-head">
-        <h2>Over time</h2>
+        <h2><Icon name="trending" size={13} />Over time</h2>
         <div class="toggle" role="group" aria-label="Trend metric">
           <button class:on={metric === "tokens"} onclick={() => (metric = "tokens")}
             aria-pressed={metric === "tokens"}>Tokens</button>
@@ -364,7 +369,7 @@
     </section>
 
     <section>
-      <h2>By account</h2>
+      <h2><Icon name="layers" size={13} />By account</h2>
       {#if modelFilterActive}
         <p class="note">Account totals cover all models — the model filter applies to the KPIs, charts, and the model breakdown.</p>
       {/if}
@@ -413,7 +418,7 @@
 
     <div class="cols">
       <section>
-        <h2>By model</h2>
+        <h2><Icon name="hash" size={13} />By model</h2>
         <div class="panel">
           {#each shownModels as m, i (m.model)}
             <BarRow
@@ -431,7 +436,7 @@
       </section>
 
       <section>
-        <h2>By project</h2>
+        <h2><Icon name="home" size={13} />By project</h2>
         {#if modelFilterActive}
           <p class="note">Not filtered by model.</p>
         {/if}
@@ -459,7 +464,7 @@
 
     <section>
       <div class="section-head">
-        <h2>Detail</h2>
+        <h2><Icon name="chart" size={13} />Detail</h2>
         <div class="toggle" role="group" aria-label="Table grouping">
           <button class:on={tableMode === "model"} onclick={() => (tableMode = "model")}
             aria-pressed={tableMode === "model"}>By model</button>
@@ -522,6 +527,9 @@
     border: 0;
   }
   h2 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.68rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -552,8 +560,9 @@
     gap: 0 22px;
   }
   .panel {
+    background: var(--panel-2);
     border: 1px solid var(--hair);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 3px 13px;
   }
   /* Divider between bar rows lives here: BarRow instances are siblings only from the parent's view. */

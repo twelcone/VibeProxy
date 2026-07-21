@@ -131,6 +131,7 @@
               width={barWidth}
               height={Math.max(0, y(s.y0) - y(s.y1))}
               fill={s.color}
+              rx={s.key === BANDS[BANDS.length - 1].key ? 2 : 0}
             />
           {/each}
           {#if i % labelEvery === 0 || i === days.length - 1}
@@ -170,8 +171,9 @@
 
 <style>
   .chart {
+    background: var(--panel-2);
     border: 1px solid var(--hair);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 11px 13px 6px;
   }
   .head {

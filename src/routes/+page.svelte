@@ -5,6 +5,7 @@
   import RowBar from "$lib/usage/RowBar.svelte";
   import MiniBars from "$lib/usage/MiniBars.svelte";
   import { modelName, tokens as fmtTokens, usd } from "$lib/format";
+  import Icon from "$lib/ui/Icon.svelte";
 
   type Profile = {
     id: string; label: string; email: string | null; configDir: string;
@@ -225,7 +226,11 @@
 
 <main>
   <header>
-    <h1>VibeProxy</h1><span class="sub">Claude Code accounts</span>
+    <span class="mark" aria-hidden="true"><Icon name="swap" size={17} /></span>
+    <span class="wordmark">
+      <h1>VibeProxy</h1>
+      <span class="sub">Claude Code accounts</span>
+    </span>
   </header>
 
   {#if banner}<div class="banner" role="alert">{banner} <button class="x" onclick={() => (banner = "")}>×</button></div>{/if}
@@ -242,6 +247,10 @@
       <div class="card" class:active={p.id === activeId}>
         <div class="id">
           <div class="name">
+            <span class="dot" class:live={p.id === activeId}
+              class:warn={u?.fiveHourPct != null && u.fiveHourPct >= 70 && u.fiveHourPct < 90}
+              class:crit={u?.status === "needsReauth" || (u?.fiveHourPct != null && u.fiveHourPct >= 90)}
+              aria-hidden="true"></span>
             {p.label}
             {#if p.id === activeId}<span class="chip on">active</span>{/if}
             {#if p.subscriptionType}<span class="tier">{p.subscriptionType}</span>{/if}
@@ -261,6 +270,9 @@
           <button class="btn icon" title={`Remove ${p.label}`} aria-label={`Remove ${p.label}`} onclick={() => del(p)}>×</button>
         </div>
         <div class="usage">
+          {#if u?.fiveHourPct == null && u?.weeklyPct == null}
+            <span class="nodata">no usage data yet</span>
+          {:else}
           <div class="metric">
             <span class="k">5-hour</span>
             <span class="bar"><i class={u?.fiveHourPct != null ? `fill-${sev(u.fiveHourPct)}` : ""} style={`width:${u?.fiveHourPct ?? 0}%`}></i></span>
@@ -272,6 +284,7 @@
             <span class="v">{u?.weeklyPct != null ? Math.round(u.weeklyPct) + "%" : "—"}</span>
           </div>
           {#if u?.fiveHourResetsAt}<div class="reset">{resetsIn(u.fiveHourResetsAt)}</div>{/if}
+          {/if}
         </div>
       </div>
     {/each}
@@ -373,10 +386,10 @@
 </main>
 
 <nav class="toolbar">
-  <button class:on={view === "home"} aria-pressed={view === "home"} onclick={() => (view = "home")}>Home</button>
-  <button onclick={openUsage}>Analytics</button>
-  <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}>Settings</button>
-  <button class="icon" title="Refresh" aria-label="Refresh" onclick={() => { refresh(); loadStats(); }}>↻</button>
+  <button class:on={view === "home"} aria-pressed={view === "home"} onclick={() => (view = "home")}><Icon name="home" size={13} />Home</button>
+  <button onclick={openUsage}><Icon name="chart" size={13} />Analytics</button>
+  <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}><Icon name="settings" size={13} />Settings</button>
+  <button class="icon" title="Refresh" aria-label="Refresh" onclick={() => { refresh(); loadStats(); }}><Icon name="refresh" size={14} /></button>
 </nav>
 
 <style>
@@ -394,15 +407,32 @@
     padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--hair);
   }
   .toolbar button {
-    font: inherit; font-size: .74rem; font-weight: 600; padding: 5px 10px; border: 0;
-    border-radius: 6px; background: none; color: var(--ink-soft); cursor: pointer;
+    display: flex; align-items: center; gap: 5px;
+    font: inherit; font-size: .74rem; font-weight: 600; padding: 5px 9px; border: 0;
+    border-radius: 7px; background: none; color: var(--ink-soft); cursor: pointer;
   }
   .toolbar button:hover { background: var(--panel-2); color: var(--ink); }
   .toolbar button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .toolbar .icon { margin-left: auto; font-size: .9rem; }
-  header { display: flex; align-items: baseline; gap: 8px; }
-  h1 { margin: 0; font-size: 1.15rem; }
-  .sub { color: var(--ink-soft); font-size: .8rem; }
+  header { display: flex; align-items: center; gap: 10px; }
+  .mark {
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+  }
+  .wordmark { display: flex; flex-direction: column; line-height: 1.25; }
+  h1 { margin: 0; font-size: 1.05rem; letter-spacing: -.01em; }
+  .sub { color: var(--ink-faint); font-size: .72rem; }
+
+  /* Liveness at a glance, ahead of the numbers. Paired with the badge and the bar colour, so the
+     dot is never the only signal. */
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: var(--ink-faint);
+  }
+  .dot.live { background: var(--good); }
+  .dot.warn { background: var(--warn); }
+  .dot.crit { background: var(--crit); }
+  .nodata { font-size: .72rem; color: var(--ink-faint); }
   h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); margin: 18px 0 8px; }
   .empty { color: var(--ink-faint); font-size: .9rem; }
   .banner { background: color-mix(in srgb, var(--crit) 12%, transparent); color: var(--crit); padding: 8px 10px; border-radius: 8px; font-size: .85rem; margin-top: 8px; display: flex; }
@@ -410,11 +440,15 @@
   .notice { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); padding: 8px 10px; border-radius: 8px; font-size: .85rem; margin-top: 8px; display: flex; }
   .notice .x { margin-left: auto; background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
 
-  .card { border: 1px solid var(--hair); border-radius: 10px; padding: 11px 12px; margin-bottom: 9px;
+  /* Filled surface rather than outline-only — an unfilled box reads as a placeholder. */
+  .card { background: var(--panel-2); border: 1px solid var(--hair); border-radius: 12px; padding: 11px 12px; margin-bottom: 8px;
     display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; }
   .card.active { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
   .name { font-weight: 600; font-size: .95rem; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-  .tier { font-size: .62rem; text-transform: uppercase; letter-spacing: .03em; background: var(--panel-3); color: var(--ink-soft); padding: 1px 5px; border-radius: 4px; font-weight: 700; }
+  /* Plan tier gets its own hue from the series palette — coral stays reserved for active state. */
+  .tier { font-size: .62rem; text-transform: uppercase; letter-spacing: .03em;
+    background: color-mix(in srgb, var(--series-3) 18%, transparent); color: var(--series-3);
+    padding: 1px 5px; border-radius: 5px; font-weight: 700; }
   .chip { font-size: .62rem; text-transform: uppercase; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
   .chip.crit { color: var(--crit); background: color-mix(in srgb, var(--crit) 14%, transparent); }
   .chip.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }

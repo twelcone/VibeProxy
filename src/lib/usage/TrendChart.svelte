@@ -70,6 +70,9 @@
   const labelEvery = $derived(Math.max(1, Math.ceil(dates.length / 6)));
 
   const bandWidth = $derived((W - PAD.left - PAD.right) / Math.max(dates.length, 1));
+
+  /** Gradient ids must be unique per instance — two charts on one page would otherwise collide. */
+  const gid = $props.id();
 </script>
 
 <div class="chart">
@@ -125,10 +128,19 @@
           {/if}
         {/each}
 
+        <defs>
+          {#each series as s (s.key)}
+            <linearGradient id={`g-${gid}-${styleIndex(s.key)}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color={seriesColor(styleIndex(s.key))} stop-opacity="0.30" />
+              <stop offset="100%" stop-color={seriesColor(styleIndex(s.key))} stop-opacity="0.02" />
+            </linearGradient>
+          {/each}
+        </defs>
+
+        <!-- Fill every series, not just a solo one: at 30%→2% the dominant series reads as volume
+             while near-zero series stay invisible, so the stack never turns to mud. -->
         {#each shown as s (s.key)}
-          {#if shown.length === 1}
-            <path class="area" d={areaPath(points(s), y(0))} fill={seriesColor(styleIndex(s.key))} />
-          {/if}
+          <path d={areaPath(points(s), y(0))} fill={`url(#g-${gid}-${styleIndex(s.key)})`} />
           <path
             d={linePath(points(s))}
             fill="none"
@@ -177,8 +189,9 @@
 
 <style>
   .chart {
+    background: var(--panel-2);
     border: 1px solid var(--hair);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 11px 13px 6px;
   }
   .head {
@@ -270,9 +283,6 @@
     fill: var(--ink-faint);
     font-size: 10px;
     font-variant-numeric: tabular-nums;
-  }
-  .area {
-    opacity: 0.18;
   }
 
   .tooltip {

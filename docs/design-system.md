@@ -130,6 +130,28 @@ they don't get "simplified" back.
 - **A lone row draws no bar.** A bar at 100% of itself encodes nothing; `BarRow` takes `soloRow` to
   suppress the track when it is the only row.
 
+## Surfaces and decorative colour
+
+Updated after comparing against a peer app: the original outline-only treatment read as a wireframe
+next to real content.
+
+- **Cards and panels are filled** (`--panel-2`) with a hairline border and a **12px** radius. Outline
+  on the raw background is reserved for nothing — an unfilled box looks unfinished.
+- **`--accent` stays sparing** — active account, primary action, selected toggle. It is never used
+  for decoration, chart series, or category badges.
+- **Decorative and categorical colour comes from `--series-*`**, which already exists and is tuned to
+  sit beside coral. KPI icon chips, plan-tier badges, and chart series all draw from it. This is how
+  the UI gets colourful without diluting what coral means.
+- **Icon chips**: 24px rounded square, `color-mix(… 16%, transparent)` of the tint behind a
+  `currentColor` Lucide glyph. Used on KPI cards and the app mark.
+- **Status dots** (7px) on account rows: `--good` active, `--warn`/`--crit` by quota, `--ink-faint`
+  when unknown. Always paired with a badge or number — never the sole signal.
+- **Chart series carry a vertical gradient fill**, 30% → 2% opacity. Applied to every series, not
+  just a solo one: a dominant series reads as volume while near-zero series stay invisible, so the
+  chart gains depth without turning to mud.
+- **Absent data says so** — "no usage data yet", not an empty bar with an em dash, which reads as
+  broken rather than empty.
+
 ## Numbers
 
 - **Compact units are hand-rolled, not `Intl` compact notation.** Locale compact renders "2.8bn" and
