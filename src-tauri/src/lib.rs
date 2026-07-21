@@ -14,7 +14,7 @@ mod usage_analytics;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::RwLock;
 
 use profile::store;
@@ -38,6 +38,11 @@ fn set_settings(app: AppHandle, mut settings: profile::Settings) -> Result<profi
     settings.threshold_pct = settings.threshold_pct.clamp(50, 100);
     settings.poll_interval_secs = settings.poll_interval_secs.max(60);
     settings.cooldown_secs = settings.cooldown_secs.max(30);
+    // A monthly cost is money the user typed: drop anything not a sane positive amount rather than
+    // persisting NaN/negatives that would poison the effective-$/Mtok math.
+    settings
+        .monthly_cost_usd
+        .retain(|_, v| v.is_finite() && *v > 0.0);
     store::set_settings(settings.clone()).map_err(|e| e.to_string())?;
 
     use tauri_plugin_autostart::ManagerExt;
@@ -70,6 +75,50 @@ async fn get_usage_analytics(
     tauri::async_runtime::spawn_blocking(move || usage_analytics::scan(&range))
         .await
         .map_err(|e| format!("usage scan task failed: {e}"))
+}
+
+/// Write the aggregate for `range` to `path` as CSV. The path comes from the frontend's OS save
+/// dialog — never a silent write to a guessed location.
+#[tauri::command]
+async fn export_usage_csv(range: Option<usage_analytics::Range>, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let csv = usage_analytics::to_csv(&usage_analytics::scan(&range));
+        std::fs::write(&path, csv).map_err(|e| format!("couldn't write {path}: {e}"))
+    })
+    .await
+    .map_err(|e| format!("export task failed: {e}"))?
+}
+
+/// Drop the cached aggregate so the next scan re-reads every log file.
+#[tauri::command]
+fn refresh_usage_analytics() {
+    usage_analytics::clear_cache();
+}
+
+/// Open (or focus) the Usage Analytics window. It's a separate, larger window than the ~420px
+/// accounts popover so the dashboard's bars and tables get real width.
+#[tauri::command]
+fn open_usage_window(app: AppHandle) -> Result<(), String> {
+    show_usage_window(&app).map_err(|e| e.to_string())
+}
+
+pub(crate) const USAGE_WINDOW: &str = "usage";
+
+pub(crate) fn show_usage_window(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(win) = app.get_webview_window(USAGE_WINDOW) {
+        win.show()?;
+        win.unminimize().ok();
+        return win.set_focus();
+    }
+    // Dev serves the SvelteKit route directly; the static build emits `usage.html`.
+    let path = if tauri::is_dev() { "usage" } else { "usage.html" };
+    WebviewWindowBuilder::new(app, USAGE_WINDOW, WebviewUrl::App(path.into()))
+        .title("Usage Analytics")
+        .inner_size(900.0, 700.0)
+        .min_inner_size(640.0, 480.0)
+        .resizable(true)
+        .build()?;
+    Ok(())
 }
 
 /// Adopt an existing Claude Code login at `config_dir` as a new profile. Reads identity via
@@ -259,6 +308,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -271,6 +321,9 @@ pub fn run() {
             get_active_profile_id,
             get_usage,
             get_usage_analytics,
+            export_usage_csv,
+            refresh_usage_analytics,
+            open_usage_window,
             adopt_profile,
             begin_add_profile,
             check_login_status,

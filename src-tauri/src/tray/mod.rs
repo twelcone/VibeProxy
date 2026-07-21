@@ -49,6 +49,9 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id.as_ref() {
         "quit" => app.exit(0),
         "open" => show_main_window(app),
+        "usage" => {
+            let _ = crate::show_usage_window(app);
+        }
         id => {
             // A profile row was clicked → make it active.
             if profile::store::find(id).is_some() {
@@ -88,8 +91,14 @@ fn build_menu(app: &AppHandle, cfg: &profile::Config) -> tauri::Result<Menu<Wry>
 
     let sep = PredefinedMenuItem::separator(app)?;
     let open = MenuItemBuilder::with_id("open", "Open VibeProxy").build(app)?;
+    let usage = MenuItemBuilder::with_id("usage", "Usage Analytics…").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit VibeProxy").build(app)?;
-    builder.item(&sep).item(&open).item(&quit).build()
+    builder
+        .item(&sep)
+        .item(&open)
+        .item(&usage)
+        .item(&quit)
+        .build()
 }
 
 fn show_main_window(app: &AppHandle) {

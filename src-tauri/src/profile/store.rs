@@ -2,7 +2,7 @@
 
 use super::paths;
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Write};
+use std::{collections::HashMap, fs, io::Write};
 
 /// Bump when the on-disk schema changes in a breaking way.
 const SCHEMA_VERSION: u32 = 1;
@@ -45,6 +45,11 @@ pub struct Settings {
     /// Anti-flap window after an auto-switch (seconds).
     pub cooldown_secs: u64,
     pub launch_at_login: bool,
+    /// Flat monthly subscription cost (USD) per account label, entered by the user in the Usage
+    /// view. Drives "effective $/Mtok" — a subscription is a flat fee, not per-token spend, so this
+    /// can't be derived from the logs.
+    #[serde(default)]
+    pub monthly_cost_usd: HashMap<String, f64>,
 }
 
 impl Default for Settings {
@@ -55,6 +60,7 @@ impl Default for Settings {
             poll_interval_secs: 120,
             cooldown_secs: 300,
             launch_at_login: false,
+            monthly_cost_usd: HashMap::new(),
         }
     }
 }

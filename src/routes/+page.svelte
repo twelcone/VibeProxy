@@ -55,6 +55,9 @@
     try { settings = await invoke<Settings>("set_settings", { settings }); }
     catch (e) { banner = `${e}`; }
   }
+  async function openUsage() {
+    try { await invoke("open_usage_window"); } catch (e) { banner = `${e}`; }
+  }
   async function copySnippet() {
     try { await navigator.clipboard.writeText(INTEGRATION_SNIPPET); copied = true; setTimeout(() => (copied = false), 1500); }
     catch { /* clipboard unavailable */ }
@@ -168,7 +171,10 @@
 </script>
 
 <main>
-  <header><h1>VibeProxy</h1><span class="sub">Claude Code account switcher</span></header>
+  <header>
+    <h1>VibeProxy</h1><span class="sub">Claude Code account switcher</span>
+    <button class="btn small usage-link" onclick={openUsage}>Usage</button>
+  </header>
 
   {#if banner}<div class="banner" role="alert">{banner} <button class="x" onclick={() => (banner = "")}>×</button></div>{/if}
   {#if notice}<div class="notice" role="status">{notice} <button class="x" onclick={() => (notice = "")}>×</button></div>{/if}
@@ -283,14 +289,7 @@
 </main>
 
 <style>
-  :root {
-    --panel: #fbfaf8; --panel-2: #f1eee9; --panel-3: #e9e5de; --ink: #26231f; --ink-soft: #6e675e;
-    --ink-faint: #837a6e; --hair: #e3ded5; --accent: #c4623f; --good: #3e9b5f; --warn: #cf9422; --crit: #ce4530;
-    --bar: #e6e1d8;
-    color: var(--ink); background: var(--panel);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  }
-  :global(body) { margin: 0; }
+  /* Color/type tokens live in src/lib/styles/tokens.css (shared with the Usage window). */
   main { padding: 14px 16px 22px; }
   header { display: flex; align-items: baseline; gap: 8px; }
   h1 { margin: 0; font-size: 1.15rem; }
@@ -356,11 +355,4 @@
   .activity li { padding: 7px 12px; border-bottom: 1px solid var(--hair); font-size: .8rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
   .activity li:last-child { border-bottom: 0; }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --panel: #232120; --panel-2: #2c2a27; --panel-3: #35322e; --ink: #f1ede6; --ink-soft: #a79e92;
-      --ink-faint: #928a7e; --hair: #35312c; --accent: #e0805c; --good: #58b776; --warn: #e3b457; --crit: #e0654e; --bar: #3a352f;
-    }
-  }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>

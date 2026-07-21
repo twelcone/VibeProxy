@@ -1,0 +1,76 @@
+/* VibeProxy design tokens — see docs/design-system.md. Shared by every window. */
+
+:root {
+  --panel: #fbfaf8;
+  --panel-2: #f1eee9;
+  --panel-3: #e9e5de;
+  --ink: #26231f;
+  --ink-soft: #6e675e;
+  --ink-faint: #837a6e;
+  --hair: #e3ded5;
+  --accent: #c4623f;
+  --accent-ink: #ffffff;
+  --good: #3e9b5f;
+  --warn: #cf9422;
+  --crit: #ce4530;
+  --bar: #e6e1d8;
+
+  /* Categorical series palette for charts. Deliberately NOT the accent (brand/active only) and NOT
+     the good/warn/crit scale (reserved for quota severity) — reusing either would make a chart color
+     look like state. Six hues, each ≥4.5:1 on --panel in both themes, always paired with a direct
+     label so meaning never rests on hue alone. */
+  --series-1: #2a716d;
+  --series-2: #4b5bb5;
+  --series-3: #8a4a86;
+  --series-4: #5f6b28;
+  --series-5: #b03a5b;
+  --series-6: #46647d;
+
+  color: var(--ink);
+  background: var(--panel);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --panel: #232120;
+    --panel-2: #2c2a27;
+    --panel-3: #35322e;
+    --ink: #f1ede6;
+    --ink-soft: #a79e92;
+    --ink-faint: #928a7e;
+    --hair: #35312c;
+    --accent: #e0805c;
+    --accent-ink: #221008;
+    --good: #58b776;
+    --warn: #e3b457;
+    --crit: #e0654e;
+    --bar: #3a352f;
+
+    --series-1: #5cb4ae;
+    --series-2: #8b97e0;
+    --series-3: #c187bd;
+    --series-4: #a8b95c;
+    --series-5: #e0748f;
+    --series-6: #86a6bf;
+  }
+}
+
+body {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

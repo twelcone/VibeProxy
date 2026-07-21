@@ -51,6 +51,29 @@ pub fn scan(range: &Option<Range>) -> Analytics {
     acc.finish(range.clone(), Some(&Prices::load()))
 }
 
+/// Cheap change-detector over every account's logs: path + mtime + length of each `*.jsonl`.
+/// Statting is milliseconds where parsing is seconds, so this gates the expensive work.
+pub(super) fn fingerprint() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for account in resolve_accounts() {
+        let mut files = jsonl_files(&account.projects_dir);
+        files.sort(); // read_dir order is not stable; the hash must be
+        for f in files {
+            f.hash(&mut h);
+            if let Ok(m) = std::fs::metadata(&f) {
+                m.len().hash(&mut h);
+                if let Ok(t) = m.modified() {
+                    if let Ok(d) = t.duration_since(std::time::UNIX_EPOCH) {
+                        d.as_nanos().hash(&mut h);
+                    }
+                }
+            }
+        }
+    }
+    h.finish()
+}
+
 /// Recursively collect `*.jsonl` under a projects dir.
 fn jsonl_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -113,6 +136,8 @@ pub struct Accumulator {
     // Model splits so per-account/-project value can be priced per model (rates are per model).
     per_account_model: HashMap<(String, String), Tokens>,
     per_project_model: HashMap<(String, String), Tokens>,
+    // (date, account, model) — the model leg is what lets an account's daily *value* be priced.
+    per_account_day_model: HashMap<(String, String, String), Tokens>,
 }
 
 impl Accumulator {
@@ -159,8 +184,12 @@ impl Accumulator {
         add(&mut self.per_model, model.clone(), &tokens);
         self.per_day.entry(date.clone()).or_default().add(&tokens);
         self.per_project.entry(project.to_string()).or_default().add(&tokens);
-        self.per_model_day.entry((date, model.clone())).or_default().add(&tokens);
+        self.per_model_day.entry((date.clone(), model.clone())).or_default().add(&tokens);
         self.per_account_model.entry((account.to_string(), model.clone())).or_default().add(&tokens);
+        self.per_account_day_model
+            .entry((date, account.to_string(), model.clone()))
+            .or_default()
+            .add(&tokens);
         self.per_project_model.entry((project.to_string(), model)).or_default().add(&tokens);
     }
 
@@ -187,9 +216,15 @@ impl Accumulator {
 
         let mut total_value = 0.0;
         let mut unpriced = std::collections::BTreeSet::new();
+        // Claude Code logs locally-fabricated messages (API errors, interrupts) as `<synthetic>`
+        // with no usage. Zero-token rows render as empty bars and dashed table rows, so drop them
+        // from every breakdown. Totals are unaffected — the rows contribute nothing to sum.
+        let has_tokens = |t: &Tokens| t.total() > 0;
+
         let mut per_model: Vec<ModelRow> = self
             .per_model
             .into_iter()
+            .filter(|(_, (tokens, _))| has_tokens(tokens))
             .map(|(model, (tokens, messages))| {
                 let value = prices.and_then(|p| p.value(&model, &tokens));
                 match value {
@@ -227,6 +262,7 @@ impl Accumulator {
         let mut per_project: Vec<ProjectRow> = self
             .per_project
             .into_iter()
+            .filter(|(_, tokens)| has_tokens(tokens))
             .map(|(project, tokens)| {
                 let value = vsum(proj_models.get(&project));
                 ProjectRow { project, tokens, value }
@@ -237,12 +273,32 @@ impl Accumulator {
         let mut per_model_per_day: Vec<ModelDayRow> = self
             .per_model_day
             .into_iter()
+            .filter(|(_, tokens)| has_tokens(tokens))
             .map(|((date, model), tokens)| {
                 let value = prices.and_then(|p| p.value(&model, &tokens));
                 ModelDayRow { date, model, tokens, value }
             })
             .collect();
         per_model_per_day.sort_by(|a, b| a.date.cmp(&b.date).then(a.model.cmp(&b.model)));
+
+        // Fold (date, account, model) into (date, account), pricing each model leg at its own rate.
+        let mut acct_day: HashMap<(String, String), (Tokens, Vec<(String, Tokens)>)> = HashMap::new();
+        for ((date, account, model), t) in self.per_account_day_model {
+            let e = acct_day.entry((date, account)).or_default();
+            e.0.add(&t);
+            e.1.push((model, t));
+        }
+        let mut per_account_per_day: Vec<AccountDayRow> = acct_day
+            .into_iter()
+            .filter(|(_, (tokens, _))| has_tokens(tokens))
+            .map(|((date, account), (tokens, models))| AccountDayRow {
+                date,
+                account,
+                value: vsum(Some(&models)),
+                tokens,
+            })
+            .collect();
+        per_account_per_day.sort_by(|a, b| a.date.cmp(&b.date).then(a.account.cmp(&b.account)));
 
         Analytics {
             totals: self.totals,
@@ -252,6 +308,7 @@ impl Accumulator {
             per_day,
             per_project,
             per_model_per_day,
+            per_account_per_day,
             range,
             total_value,
             priced_as_of: prices.map(|p| p.updated_at.clone()).unwrap_or_default(),
@@ -309,6 +366,64 @@ mod tests {
         let a = acc.finish(None, None);
         assert_eq!(a.message_count, 0);
         assert_eq!(a.totals.total(), 0);
+    }
+
+    /// End-to-end against this machine's real Claude Code logs. Ignored by default: it depends on
+    /// local state, so it can't run in CI. Run with
+    /// `cargo test real_logs -- --ignored --nocapture`.
+    ///
+    /// Asserts only *internal consistency* — every breakdown must re-sum to the same totals — which
+    /// is checkable without knowing the expected numbers in advance. Prints aggregates (never log
+    /// content) so the figures can be eyeballed against `ccusage`.
+    #[test]
+    #[ignore = "reads this machine's real Claude Code logs"]
+    fn real_logs_aggregate_consistently() {
+        let a = scan(&None);
+        if a.message_count == 0 {
+            eprintln!("no local logs found — nothing to verify");
+            return;
+        }
+
+        let total = a.totals.total();
+        let sum_of = |v: u64| v;
+        let acct: u64 = a.per_account.iter().map(|r| r.tokens.total()).sum();
+        let model: u64 = a.per_model.iter().map(|r| r.tokens.total()).sum();
+        let day: u64 = a.per_day.iter().map(|r| r.tokens.total()).sum();
+        let proj: u64 = a.per_project.iter().map(|r| r.tokens.total()).sum();
+        let md: u64 = a.per_model_per_day.iter().map(|r| r.tokens.total()).sum();
+        let ad: u64 = a.per_account_per_day.iter().map(|r| r.tokens.total()).sum();
+
+        eprintln!("--- real-log aggregates ---");
+        eprintln!("messages       {}", a.message_count);
+        eprintln!("total tokens   {total}");
+        eprintln!("  input        {}", a.totals.input);
+        eprintln!("  output       {}", a.totals.output);
+        eprintln!("  cache write  {}", a.totals.cache_write);
+        eprintln!("  cache read   {}", a.totals.cache_read);
+        eprintln!("API value      ${:.2}  (priced as of {})", a.total_value, a.priced_as_of);
+        eprintln!("accounts {}  models {}  days {}  projects {}",
+            a.per_account.len(), a.per_model.len(), a.per_day.len(), a.per_project.len());
+        for r in &a.per_account {
+            eprintln!("  account  {:<28} {:>14} tok", r.account, r.tokens.total());
+        }
+        for r in &a.per_model {
+            eprintln!("  model    {:<28} {:>14} tok  {:?}", r.model, r.tokens.total(), r.value);
+        }
+        if !a.unpriced_models.is_empty() {
+            eprintln!("UNPRICED: {:?}", a.unpriced_models);
+        }
+
+        assert_eq!(sum_of(acct), total, "per_account must re-sum to totals");
+        assert_eq!(sum_of(model), total, "per_model must re-sum to totals");
+        assert_eq!(sum_of(day), total, "per_day must re-sum to totals");
+        assert_eq!(sum_of(proj), total, "per_project must re-sum to totals");
+        assert_eq!(sum_of(md), total, "per_model_per_day must re-sum to totals");
+        assert_eq!(sum_of(ad), total, "per_account_per_day must re-sum to totals");
+        assert!(a.per_day.windows(2).all(|w| w[0].date <= w[1].date), "per_day sorted by date");
+        assert!(
+            a.per_account.windows(2).all(|w| w[0].tokens.total() >= w[1].tokens.total()),
+            "per_account sorted desc"
+        );
     }
 
     #[test]

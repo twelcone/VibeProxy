@@ -75,8 +75,19 @@ pub struct ModelDayRow {
     pub value: Option<f64>,
 }
 
+/// One (day, account) bucket, for the trend chart grouped by account.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDayRow {
+    pub date: String,
+    pub account: String,
+    pub tokens: Tokens,
+    #[serde(default)]
+    pub value: Option<f64>,
+}
+
 /// Inclusive local-date filter (YYYY-MM-DD). Both bounds optional.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Range {
     pub from: Option<String>,
@@ -94,6 +105,7 @@ pub struct Analytics {
     pub per_day: Vec<DayRow>,
     pub per_project: Vec<ProjectRow>,
     pub per_model_per_day: Vec<ModelDayRow>,
+    pub per_account_per_day: Vec<AccountDayRow>,
     pub range: Option<Range>,
     /// Total API-equivalent value (USD) across priced models.
     #[serde(default)]
