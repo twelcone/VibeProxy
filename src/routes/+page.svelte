@@ -15,6 +15,8 @@
   type Usage = {
     profileId: string; fiveHourPct: number | null; fiveHourResetsAt: string | null;
     weeklyPct: number | null; weeklyResetsAt: string | null; status: string;
+    /// Non-fatal detail, set only when status is "error" — shown on hover, not in the row.
+    error: string | null;
   };
   type AddState = { configDir: string; label: string; message: string; error: boolean };
   type Settings = {
@@ -329,7 +331,15 @@
         </div>
         <div class="usage">
           {#if u?.fiveHourPct == null && u?.weeklyPct == null}
-            <span class="nodata">no usage data yet</span>
+            <!-- "no data" and "we failed to read it" are different facts and must not share a
+                 message: one is a new account, the other is a problem the user can act on. -->
+            {#if u?.status === "needsReauth"}
+              <span class="nodata">sign in again to read usage</span>
+            {:else if u?.status === "error"}
+              <span class="nodata" title={u?.error ?? ""}>usage unavailable — retrying</span>
+            {:else}
+              <span class="nodata">no usage data yet</span>
+            {/if}
           {:else}
           <div class="metric">
             <span class="k">5h</span>
