@@ -47,3 +47,10 @@ pub fn active_path_file() -> PathBuf {
 pub fn profiles_dir() -> PathBuf {
     vibeproxy_dir().join("profiles")
 }
+
+/// Append-only log of account-occupancy boundaries: `~/.vibeproxy/swaps.jsonl`.
+/// Written when an account is hot-swapped into a config dir; read by the analytics scanner so
+/// usage is attributed to whoever owned the dir at the time, not to whoever owns it now.
+pub fn swap_journal_file() -> PathBuf {
+    vibeproxy_dir().join("swaps.jsonl")
+}

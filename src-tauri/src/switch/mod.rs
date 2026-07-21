@@ -4,6 +4,8 @@
 //! would collide all profiles onto one Keychain item). So "active" is a real path written to
 //! `~/.vibeproxy/active-path`, which the user's shell reads into CLAUDE_CONFIG_DIR.
 
+pub mod journal;
+
 use crate::profile::paths;
 use std::{fs, io::Write, path::Path};
 

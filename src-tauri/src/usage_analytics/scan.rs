@@ -2,6 +2,7 @@
 
 use super::cost::Prices;
 use super::model::*;
+use crate::switch::journal::{self, Timeline};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
@@ -9,8 +10,12 @@ use std::path::{Path, PathBuf};
 
 /// A log root to scan: an account label + its `<config_dir>/projects` dir.
 struct Account {
+    /// Who owns the directory. Still the answer for every dir that has never been hot-swapped.
     label: String,
     projects_dir: PathBuf,
+    config_dir: PathBuf,
+    /// Resolves which account owned this dir at a given instant.
+    timeline: Timeline,
 }
 
 /// Resolve accounts from VibeProxy's profiles + the default `~/.claude`, deduped by resolved path.
@@ -23,7 +28,12 @@ fn resolve_accounts() -> Vec<Account> {
         let projects = config_dir.join("projects");
         let key = std::fs::canonicalize(&projects).unwrap_or_else(|_| projects.clone());
         if seen.insert(key) {
-            out.push(Account { label, projects_dir: projects });
+            out.push(Account {
+                timeline: Timeline::owned_by(label.clone()),
+                label,
+                projects_dir: projects,
+                config_dir,
+            });
         }
     };
 
@@ -32,6 +42,19 @@ fn resolve_accounts() -> Vec<Account> {
     }
     if let Some(home) = dirs::home_dir() {
         push(&mut out, &mut seen, "Default (~/.claude)".to_string(), home.join(".claude"));
+    }
+
+    // Overlay hot-swap boundaries. Dirs with no recorded swap keep a static timeline, which
+    // resolves to the owner without a lookup.
+    let owners: HashMap<String, String> = out
+        .iter()
+        .map(|a| (a.config_dir.to_string_lossy().to_string(), a.label.clone()))
+        .collect();
+    let timelines = journal::load_timelines(&owners);
+    for a in &mut out {
+        if let Some(t) = timelines.get(&a.config_dir.to_string_lossy().to_string()) {
+            a.timeline = t.clone();
+        }
     }
     out
 }
@@ -44,7 +67,7 @@ pub fn scan(range: &Option<Range>) -> Analytics {
             let project = project_slug(&file, &account.projects_dir);
             let Ok(f) = std::fs::File::open(&file) else { continue };
             for line in BufReader::new(f).lines().map_while(Result::ok) {
-                acc.ingest_line(&line, &account.label, &project, range);
+                acc.ingest_line(&line, &account.timeline, &project, range);
             }
         }
     }
@@ -142,7 +165,7 @@ pub struct Accumulator {
 
 impl Accumulator {
     /// Parse one JSONL line; fold in its usage if it's a deduped, in-range assistant message.
-    pub fn ingest_line(&mut self, line: &str, account: &str, project: &str, range: &Option<Range>) {
+    pub fn ingest_line(&mut self, line: &str, timeline: &Timeline, project: &str, range: &Option<Range>) {
         let line = line.trim();
         if line.is_empty() {
             return;
@@ -165,10 +188,20 @@ impl Accumulator {
             }
         }
 
-        let date = local_date(v.get("timestamp").and_then(Value::as_str).unwrap_or(""));
+        // Parse the timestamp once: the local date drives bucketing and range filtering, the
+        // instant drives account attribution. A dir that was never hot-swapped has a static
+        // timeline, so `resolve` returns its owner without inspecting the instant at all.
+        let ts = v.get("timestamp").and_then(Value::as_str).unwrap_or("");
+        let parsed = chrono::DateTime::parse_from_rfc3339(ts).ok();
+        let date = match parsed {
+            Some(dt) => dt.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string(),
+            None => local_date(ts),
+        };
         if !in_range(&date, range) {
             return;
         }
+        // An unparseable timestamp cannot be placed on the timeline; fall back to the dir's owner.
+        let account = timeline.resolve(parsed.map(|d| d.timestamp_millis()).unwrap_or(i64::MIN));
 
         let tokens = Tokens {
             input: u(usage, "input_tokens"),
@@ -336,9 +369,9 @@ mod tests {
     #[test]
     fn aggregates_across_accounts_models_and_dedupes() {
         let mut acc = Accumulator::default();
-        acc.ingest_line(&line("r1", "claude-opus-4-8", "2026-07-02T07:00:00.000Z", 100, 10, 50, 20), "Main", "proj-a", &None);
-        acc.ingest_line(&line("r1", "claude-opus-4-8", "2026-07-02T07:00:00.000Z", 100, 10, 50, 20), "Main", "proj-a", &None); // dup requestId
-        acc.ingest_line(&line("r2", "claude-fable-5", "2026-07-03T07:00:00.000Z", 200, 20, 0, 0), "Work", "proj-b", &None);
+        acc.ingest_line(&line("r1", "claude-opus-4-8", "2026-07-02T07:00:00.000Z", 100, 10, 50, 20), &Timeline::owned_by("Main"), "proj-a", &None);
+        acc.ingest_line(&line("r1", "claude-opus-4-8", "2026-07-02T07:00:00.000Z", 100, 10, 50, 20), &Timeline::owned_by("Main"), "proj-a", &None); // dup requestId
+        acc.ingest_line(&line("r2", "claude-fable-5", "2026-07-03T07:00:00.000Z", 200, 20, 0, 0), &Timeline::owned_by("Work"), "proj-b", &None);
         let prices = super::super::cost::Prices::load();
         let a = acc.finish(None, Some(&prices));
 
@@ -356,13 +389,49 @@ mod tests {
         assert_eq!(a.per_account[0].account, "Work");
     }
 
+    /// The whole point of Phase 1: two messages in the SAME directory, either side of a swap,
+    /// must be credited to different accounts.
+    #[test]
+    fn a_swap_boundary_splits_one_dir_across_two_accounts() {
+        let timeline = crate::switch::journal::Timeline::for_test(
+            "Work",
+            &[("2026-07-15T00:00:00Z", "Personal")],
+        );
+        let mut acc = Accumulator::default();
+        // before the swap → Work
+        acc.ingest_line(&line("a", "claude-opus-4-8", "2026-07-14T10:00:00.000Z", 100, 0, 0, 0), &timeline, "p", &None);
+        // after the swap → Personal, despite living in the same directory
+        acc.ingest_line(&line("b", "claude-opus-4-8", "2026-07-16T10:00:00.000Z", 300, 0, 0, 0), &timeline, "p", &None);
+        let a = acc.finish(None, None);
+
+        assert_eq!(a.per_account.len(), 2, "one dir, two accounts after a swap");
+        let by = |name: &str| {
+            a.per_account.iter().find(|r| r.account == name).map(|r| r.tokens.input).unwrap_or(0)
+        };
+        assert_eq!(by("Work"), 100);
+        assert_eq!(by("Personal"), 300);
+        assert_eq!(a.totals.input, 400, "totals unaffected by attribution");
+    }
+
+    /// Attribution must not perturb anything when no swap has ever happened.
+    #[test]
+    fn static_timeline_matches_plain_owner_attribution() {
+        let mut acc = Accumulator::default();
+        acc.ingest_line(&line("a", "claude-opus-4-8", "2026-07-14T10:00:00.000Z", 100, 0, 0, 0), &Timeline::owned_by("Work"), "p", &None);
+        acc.ingest_line(&line("b", "claude-opus-4-8", "2026-07-16T10:00:00.000Z", 300, 0, 0, 0), &Timeline::owned_by("Work"), "p", &None);
+        let a = acc.finish(None, None);
+        assert_eq!(a.per_account.len(), 1);
+        assert_eq!(a.per_account[0].account, "Work");
+        assert_eq!(a.per_account[0].tokens.input, 400);
+    }
+
     #[test]
     fn skips_non_assistant_and_malformed_and_missing_usage() {
         let mut acc = Accumulator::default();
-        acc.ingest_line(r#"{"type":"user","message":{"content":"hi"}}"#, "Main", "p", &None);
-        acc.ingest_line("not json at all", "Main", "p", &None);
-        acc.ingest_line(r#"{"type":"assistant","message":{"model":"x"}}"#, "Main", "p", &None); // no usage
-        acc.ingest_line("", "Main", "p", &None);
+        acc.ingest_line(r#"{"type":"user","message":{"content":"hi"}}"#, &Timeline::owned_by("Main"), "p", &None);
+        acc.ingest_line("not json at all", &Timeline::owned_by("Main"), "p", &None);
+        acc.ingest_line(r#"{"type":"assistant","message":{"model":"x"}}"#, &Timeline::owned_by("Main"), "p", &None); // no usage
+        acc.ingest_line("", &Timeline::owned_by("Main"), "p", &None);
         let a = acc.finish(None, None);
         assert_eq!(a.message_count, 0);
         assert_eq!(a.totals.total(), 0);
@@ -432,12 +501,12 @@ mod tests {
         // extra/unknown fields in usage must be ignored, not error
         let l = r#"{"type":"assistant","requestId":"r9","timestamp":"2026-07-10T00:00:00.000Z","message":{"model":"m","usage":{"input_tokens":5,"output_tokens":1,"service_tier":"standard","iterations":[1,2]}}}"#;
         let range = Some(Range { from: Some("2026-07-01".into()), to: Some("2026-07-05".into()) });
-        acc.ingest_line(l, "Main", "p", &range); // 07-10 is outside 01..05
+        acc.ingest_line(l, &Timeline::owned_by("Main"), "p", &range); // 07-10 is outside 01..05
         assert_eq!(acc.finish(range, None).message_count, 0);
 
         let mut acc2 = Accumulator::default();
         let range2 = Some(Range { from: Some("2026-07-01".into()), to: Some("2026-07-31".into()) });
-        acc2.ingest_line(l, "Main", "p", &range2);
+        acc2.ingest_line(l, &Timeline::owned_by("Main"), "p", &range2);
         assert_eq!(acc2.finish(range2, None).totals.input, 5);
     }
 }
