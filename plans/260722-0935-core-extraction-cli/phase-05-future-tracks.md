@@ -11,7 +11,16 @@ dependencies: [4]
 
 Recorded now so the phase-3 seams are shaped correctly. Each is a separate effort with its own plan.
 
-## Track A — Linux credential/terminal backend
+## Track A — Linux credential/terminal backend  ✅ credential store DONE
+
+**Implemented** (`platform/file_store.rs`): a `FileStore` reading/writing
+`<config_dir>/.credentials.json` (atomic, 0600), with the pre-swap backup in a sibling file. It is
+the wired default on non-macOS via `platform::credentials()`, and — because it is pure file I/O —
+its full CRUD + once-only-backup + missing-file behaviour is unit-tested on macOS (4 tests). The
+hot-swap flow already works against any `CredentialStore`, so it needs no per-OS branching. What
+remains for Track A: the terminal launcher (below) and a real Linux CI run to exercise the cfg path.
+
+Original notes:
 
 - **Credentials:** confirm Claude Code on Linux uses a plaintext `.credentials.json` (research says
   yes). If so, `CredentialStore` for Linux is atomic file read/replace with `0600` — *simpler* than

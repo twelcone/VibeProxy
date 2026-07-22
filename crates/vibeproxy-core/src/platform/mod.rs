@@ -7,6 +7,7 @@ use std::path::Path;
 
 #[cfg(target_os = "macos")]
 mod macos;
+mod file_store;
 #[cfg(not(target_os = "macos"))]
 mod stub;
 
@@ -79,7 +80,7 @@ pub fn credentials() -> impl CredentialStore {
 }
 #[cfg(not(target_os = "macos"))]
 pub fn credentials() -> impl CredentialStore {
-    stub::UnsupportedStore
+    file_store::FileStore
 }
 
 /// The terminal launcher for the current OS.
