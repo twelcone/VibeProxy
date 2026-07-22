@@ -135,7 +135,7 @@ fn in_range(date: &str, range: &Option<Range>) -> bool {
     match range {
         None => true,
         Some(r) => {
-            r.from.as_deref().map_or(true, |f| date >= f) && r.to.as_deref().map_or(true, |t| date <= t)
+            r.from.as_deref().is_none_or(|f| date >= f) && r.to.as_deref().is_none_or(|t| date <= t)
         }
     }
 }
@@ -270,7 +270,7 @@ impl Accumulator {
                 ModelRow { model, tokens, messages, value }
             })
             .collect();
-        per_model.sort_by(|a, b| b.tokens.total().cmp(&a.tokens.total()));
+        per_model.sort_by_key(|r| std::cmp::Reverse(r.tokens.total()));
 
         let mut per_account: Vec<AccountRow> = self
             .per_account
@@ -280,7 +280,7 @@ impl Accumulator {
                 AccountRow { account, tokens, messages, value }
             })
             .collect();
-        per_account.sort_by(|a, b| b.tokens.total().cmp(&a.tokens.total()));
+        per_account.sort_by_key(|r| std::cmp::Reverse(r.tokens.total()));
 
         let mut per_day: Vec<DayRow> = self
             .per_day
@@ -301,7 +301,7 @@ impl Accumulator {
                 ProjectRow { project, tokens, value }
             })
             .collect();
-        per_project.sort_by(|a, b| b.tokens.total().cmp(&a.tokens.total()));
+        per_project.sort_by_key(|r| std::cmp::Reverse(r.tokens.total()));
 
         let mut per_model_per_day: Vec<ModelDayRow> = self
             .per_model_day
@@ -315,7 +315,8 @@ impl Accumulator {
         per_model_per_day.sort_by(|a, b| a.date.cmp(&b.date).then(a.model.cmp(&b.model)));
 
         // Fold (date, account, model) into (date, account), pricing each model leg at its own rate.
-        let mut acct_day: HashMap<(String, String), (Tokens, Vec<(String, Tokens)>)> = HashMap::new();
+        type AcctDayFold = HashMap<(String, String), (Tokens, Vec<(String, Tokens)>)>;
+        let mut acct_day: AcctDayFold = HashMap::new();
         for ((date, account, model), t) in self.per_account_day_model {
             let e = acct_day.entry((date, account)).or_default();
             e.0.add(&t);

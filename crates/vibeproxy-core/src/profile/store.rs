@@ -126,7 +126,7 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
     let path = paths::config_path();
     let tmp = path.with_extension("json.tmp");
     let json = serde_json::to_string_pretty(cfg)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     {
         let mut f = fs::File::create(&tmp)?;
         f.write_all(json.as_bytes())?;

@@ -38,7 +38,7 @@ pub fn spawn(app: AppHandle, state: UsageState) {
             let active_id = cfg.active_profile_id.clone();
             let known: HashSet<String> = state.read().await.keys().cloned().collect();
 
-            if tick % IDENTITY_EVERY == 0 {
+            if tick.is_multiple_of(IDENTITY_EVERY) {
                 refresh_identities(&app, &cfg).await;
             }
 
@@ -46,7 +46,7 @@ pub fn spawn(app: AppHandle, state: UsageState) {
                 let is_active = Some(&p.id) == active_id.as_ref();
                 // Poll: the active profile every tick, never-seen profiles immediately, others lazily.
                 let never_polled = !known.contains(&p.id);
-                if !is_active && !never_polled && tick % INACTIVE_EVERY != 0 {
+                if !is_active && !never_polled && !tick.is_multiple_of(INACTIVE_EVERY) {
                     continue;
                 }
                 let usage = poll_profile(&p.id, Path::new(&p.config_dir), is_active).await;

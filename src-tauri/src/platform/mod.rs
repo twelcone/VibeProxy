@@ -5,7 +5,7 @@
 #[cfg(target_os = "macos")]
 pub fn hide_dock_icon(app: &mut tauri::App) {
     // `Accessory` = LSUIElement equivalent: menubar presence, no Dock icon, no app menu.
-    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 }
 
 #[cfg(not(target_os = "macos"))]

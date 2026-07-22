@@ -219,7 +219,7 @@ mod tests {
         // Swap Personal's account INTO /work (the running session's dir).
         swap_into(&store, Path::new("/work"), Path::new("/personal"), "p_personal", "Personal").unwrap();
         assert_eq!(store.token_at("/work"), "PERSONAL", "live dir now holds the swapped account");
-        assert_eq!(blob_from_value(&json!(0)).is_ok(), true); // sanity: helper reachable
+        assert!(blob_from_value(&json!(0)).is_ok()); // sanity: helper reachable
 
         // A second swap must not overwrite the snapshot of the true owner.
         store.seed("/other", json!({"claudeAiOauth": {"accessToken": "OTHER", "subscriptionType": "max"}}));

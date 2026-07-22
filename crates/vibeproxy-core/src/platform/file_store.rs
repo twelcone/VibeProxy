@@ -6,6 +6,10 @@
 //! plaintext file, so a plaintext backup adds no exposure the platform doesn't already have — unlike
 //! macOS, where the backup goes into the Keychain to preserve the "never a plaintext file" posture.
 
+// Wired as the default only off macOS; compiled here for test coverage, so its non-test uses look
+// dead on a macOS build.
+#![cfg_attr(target_os = "macos", allow(dead_code))]
+
 use super::{Blob, CredentialStore, Secret};
 use std::path::{Path, PathBuf};
 

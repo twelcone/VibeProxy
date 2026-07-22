@@ -67,7 +67,7 @@ pub fn decide(cfg: &Config, usage: &HashMap<String, ProfileUsage>, cooling: bool
         .filter(|p| match usage.get(&p.id) {
             Some(u) if u.status == UsageStatus::Ok => {
                 u.five_hour_pct.is_some_and(|v| v < thr - HYSTERESIS)
-                    && u.weekly_pct.map_or(true, |v| v < thr)
+                    && u.weekly_pct.is_none_or(|v| v < thr)
             }
             _ => false,
         })
