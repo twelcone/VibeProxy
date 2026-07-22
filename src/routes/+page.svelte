@@ -2,7 +2,6 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
-  import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
   import RowBar from "$lib/usage/RowBar.svelte";
   import MiniBars from "$lib/usage/MiniBars.svelte";
   import { modelName, tokens as fmtTokens, usd } from "$lib/format";
@@ -50,29 +49,14 @@
 
   /** The popover is usage-first; configuration lives behind the toolbar's Settings tab. */
   let view = $state<"home" | "settings" | "onboarding">("home");
-  let mainEl = $state<HTMLElement | null>(null);
-  let barEl = $state<HTMLElement | null>(null);
-  let lastFitHeight = 0;
 
-  const PANEL_WIDTH = 400;
-  const PANEL_MAX_HEIGHT = 720; // beyond this the panel would run off shorter displays
+  // The window is a fixed-height OS rectangle; the shell fills it and `main` scrolls internally.
+  // Dynamic fit-to-content was tried and repeatedly mis-measured on first render, collapsing the
+  // panel to its header — a fixed height cannot fail that way, which is what every menubar app ships.
 
-  /**
-   * A menubar panel should be exactly as tall as its content. The OS window is a fixed rectangle,
-   * so a 640px window holding 500px of content painted 140px of dead surface underneath. Measure
-   * the shell and resize the window to match; only past the cap does the content scroll.
-   */
-  function fitWindowToContent() {
-    if (!mainEl || !barEl) return;
-    // Measure `main.scrollHeight` (intrinsic content) rather than the shell, whose height is
-    // clamped to the viewport — observing the shell would feed its own resize back in as a loop.
-    const h = Math.min(Math.ceil(mainEl.scrollHeight + barEl.offsetHeight + 2), PANEL_MAX_HEIGHT);
-    if (Math.abs(h - lastFitHeight) < 3) return; // ignore sub-pixel churn
-    lastFitHeight = h;
-    getCurrentWindow().setSize(new LogicalSize(PANEL_WIDTH, h)).catch(() => {});
-  }
   let stats = $state<Analytics | null>(null);
   const TOP_MODELS = 3;
+
 
   const sumTok = (t: Tok) => t.input + t.output + t.cacheWrite + t.cacheRead;
 
@@ -165,14 +149,6 @@
     loadStats();
     await checkShellIntegration();
     if (settings && !settings.onboarded) view = "onboarding";
-    if (mainEl) {
-      const ro = new ResizeObserver(fitWindowToContent);
-      // Observe the content, not the clamped shell.
-      for (const child of Array.from(mainEl.children)) ro.observe(child);
-      ro.observe(mainEl);
-      unlisteners.push(() => ro.disconnect());
-      fitWindowToContent();
-    }
     unlisteners.push(
       await listen<Usage[]>("usage-updated", (e) => {
         const next = { ...usage };
@@ -305,7 +281,7 @@
 </script>
 
 <div class="shell">
-<main bind:this={mainEl}>
+<main>
   <header>
     <span class="mark" aria-hidden="true"><Icon name="swap" size={17} /></span>
     <span class="wordmark">
@@ -508,7 +484,7 @@
   {/if}
 </main>
 
-<nav class="toolbar" bind:this={barEl} class:hidden={view === "onboarding"}>
+<nav class="toolbar" class:hidden={view === "onboarding"}>
   <button class:on={view === "home"} aria-pressed={view === "home"} onclick={() => (view = "home")}><Icon name="home" size={13} />Home</button>
   <button onclick={openUsage}><Icon name="chart" size={13} />Analytics</button>
   <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}><Icon name="settings" size={13} />Settings</button>
@@ -536,7 +512,7 @@
   }
   .shell:hover :global(::-webkit-scrollbar-thumb) { background: var(--panel-3); background-clip: padding-box; }
   .shell {
-    max-height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
     background: var(--panel); border: 1px solid var(--hair); border-radius: 12px;
   }
   main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 16px; }
