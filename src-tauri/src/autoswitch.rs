@@ -72,7 +72,9 @@ fn hot_swap_active_session(cfg: &Config, target_id: &str, target_label: &str) ->
     let target_dir = dir_of(target_id)?;
     let session_dir = dir_of(previous)?;
 
+    let store = vibeproxy_core::platform::credentials();
     match vibeproxy_core::switch::hotswap::swap_into(
+        &store,
         std::path::Path::new(&session_dir),
         std::path::Path::new(&target_dir),
         target_id,

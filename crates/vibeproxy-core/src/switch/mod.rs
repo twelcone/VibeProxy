@@ -9,7 +9,7 @@ pub mod hotswap;
 pub mod locks;
 
 use crate::profile::paths;
-use std::{fs, io::Write, path::Path};
+use std::{fs, io::Write};
 
 /// The active profile's real config-dir path, if set.
 #[allow(dead_code)]
@@ -32,24 +32,5 @@ pub fn set_active_config_dir(config_dir: &str) -> std::io::Result<()> {
         f.sync_all()?;
     }
     fs::rename(&tmp, &path)?;
-    Ok(())
-}
-
-/// Open Terminal running `claude` scoped to a profile (macOS). Powers the "relaunch" action.
-/// The default account must run with `CLAUDE_CONFIG_DIR` UNSET (setting it to `~/.claude` breaks it).
-pub fn launch_claude(config_dir: &Path) -> std::io::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command;
-        let cmd = if crate::profile::paths::is_default(config_dir) {
-            "claude".to_string()
-        } else {
-            format!("export CLAUDE_CONFIG_DIR={} && claude", config_dir.display())
-        };
-        let script = format!("tell application \"Terminal\" to do script \"{cmd}\"");
-        Command::new("osascript").args(["-e", &script]).spawn()?;
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = config_dir;
     Ok(())
 }

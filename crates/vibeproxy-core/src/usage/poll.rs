@@ -1,7 +1,7 @@
 //! One-shot usage fetch for a single profile — the unit the app poller loops over and the CLI
 //! calls directly. No timer, no events; those belong to the caller.
 
-use crate::keychain;
+use crate::platform::{self, CredentialStore};
 use crate::profile;
 use crate::usage::{client, model::ProfileUsage};
 use std::path::Path;
@@ -22,9 +22,9 @@ pub async fn poll_profile(profile_id: &str, config_dir: &Path, is_active: bool) 
     // only a 401 from the usage endpoint means the token is actually invalid.
     let token = {
         let dir = config_dir.to_path_buf();
-        match tokio::task::spawn_blocking(move || keychain::read_token(&dir)).await {
+        match tokio::task::spawn_blocking(move || platform::credentials().read_token(&dir)).await {
             Ok(Ok(t)) => t,
-            Ok(Err(e)) => return ProfileUsage::error(profile_id, format!("keychain: {e}")),
+            Ok(Err(e)) => return ProfileUsage::error(profile_id, format!("credentials: {e}")),
             Err(_) => return ProfileUsage::error(profile_id, "keychain read task failed".into()),
         }
     };

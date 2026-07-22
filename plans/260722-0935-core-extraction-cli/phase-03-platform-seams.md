@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Platform seams behind traits (macOS impl)"
-status: pending
+status: done
 priority: P1
 effort: "1-2d"
 dependencies: [1]

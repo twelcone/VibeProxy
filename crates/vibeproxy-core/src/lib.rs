@@ -4,7 +4,7 @@
 //! Frontends (the Tauri app, the CLI, a future native app) act on what these modules return.
 
 pub mod autoswitch;
-pub mod keychain;
+pub mod platform;
 pub mod profile;
 pub mod switch;
 pub mod usage;

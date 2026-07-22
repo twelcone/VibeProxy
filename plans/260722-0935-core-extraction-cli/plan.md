@@ -49,7 +49,7 @@ emits an event, draws a tray, or spawns a window. It returns values; the app (or
 |---|-------|--------|-----------|
 | 1 | [Workspace + `vibeproxy-core` crate](./phase-01-workspace-core-crate.md) | ✅ Done | — |
 | 2 | [Decouple side effects from the core](./phase-02-decouple-side-effects.md) | ✅ Done | 1 |
-| 3 | [Platform seams behind traits (macOS impl)](./phase-03-platform-seams.md) | Pending | 1 |
+| 3 | [Platform seams behind traits (macOS impl)](./phase-03-platform-seams.md) | ✅ Done | 1 |
 | 4 | [`vibeproxy` CLI (headless / WSL)](./phase-04-cli.md) | Pending | 1, 2, 3 |
 | 5 | [Future: per-OS backends + native frontends](./phase-05-future-tracks.md) | Pending | 4 |
 

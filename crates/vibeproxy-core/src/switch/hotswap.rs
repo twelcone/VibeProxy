@@ -9,7 +9,7 @@
 //! Every swap appends a boundary to the journal so analytics can still attribute usage correctly —
 //! see `switch::journal`.
 
-use crate::keychain;
+use crate::platform::{blob_from_value, CredentialStore};
 use crate::switch::{journal, locks};
 use std::path::Path;
 use std::time::Duration;
@@ -66,7 +66,8 @@ fn identity_of(v: &serde_json::Value) -> Option<String> {
 }
 
 /// Put `source_dir`'s account into `target_dir`, so a session running on `target_dir` switches.
-pub fn swap_into(
+pub fn swap_into<S: CredentialStore>(
+    store: &S,
     target_dir: &Path,
     source_dir: &Path,
     account_id: &str,
@@ -75,26 +76,26 @@ pub fn swap_into(
     let _guard = locks::acquire(&locks::claude_lock_paths(), 5, Duration::from_millis(120))
         .ok_or(SwapError::Locked)?;
 
-    let source = keychain::read_blob(source_dir).map_err(SwapError::Read)?;
+    let source = store.read_blob(source_dir).map_err(SwapError::Read)?;
     let source_json = source.parse().map_err(SwapError::Read)?;
-    let target = keychain::read_blob(target_dir).map_err(SwapError::Read)?;
+    let target = store.read_blob(target_dir).map_err(SwapError::Read)?;
     let target_json = target.parse().map_err(SwapError::Read)?;
 
     let want = identity_of(&source_json).ok_or(SwapError::VerifyFailed)?;
     let merged = merge_account_into(&target_json, &source_json);
-    let acct = keychain::item_account(target_dir).map_err(SwapError::Read)?;
+    let acct = store.item_account(target_dir).map_err(SwapError::Read)?;
 
     // Preserve what we are about to displace, BEFORE displacing it. The target dir's credentials
     // live in exactly one place; overwriting them without a snapshot destroys that account's only
     // copy and leaves two profiles pointing at the same token, which jams auto-switch entirely.
-    keychain::backup_once(target_dir, &acct, &target).map_err(SwapError::Write)?;
+    store.backup_once(target_dir, &acct, &target).map_err(SwapError::Write)?;
 
-    let blob = keychain::blob_from_value(&merged).map_err(SwapError::Write)?;
-    keychain::write_blob(target_dir, &acct, &blob).map_err(SwapError::Write)?;
+    let blob = blob_from_value(&merged).map_err(SwapError::Write)?;
+    store.write_blob(target_dir, &acct, &blob).map_err(SwapError::Write)?;
 
     // Read back before believing it. A silently-failed write would leave the old account live while
     // the journal claims otherwise, which is worse than a loud failure.
-    let after = keychain::read_blob(target_dir).map_err(SwapError::Read)?;
+    let after = store.read_blob(target_dir).map_err(SwapError::Read)?;
     let after_json = after.parse().map_err(SwapError::Read)?;
     if identity_of(&after_json).as_deref() != Some(want.as_str()) {
         return Err(SwapError::VerifyFailed);
@@ -115,23 +116,28 @@ pub fn swap_into(
 ///
 /// The snapshot is taken once, on the first swap, so this always restores the account that genuinely
 /// owns the directory rather than whatever was most recently swapped in.
-pub fn restore_original(config_dir: &Path, owner_id: &str, owner_label: &str) -> Result<(), SwapError> {
+pub fn restore_original<S: CredentialStore>(
+    store: &S,
+    config_dir: &Path,
+    owner_id: &str,
+    owner_label: &str,
+) -> Result<(), SwapError> {
     let _guard = locks::acquire(&locks::claude_lock_paths(), 5, Duration::from_millis(120))
         .ok_or(SwapError::Locked)?;
 
-    let backup = keychain::read_backup(config_dir).map_err(SwapError::Read)?;
+    let backup = store.read_backup(config_dir).map_err(SwapError::Read)?;
     let backup_json = backup.parse().map_err(SwapError::Read)?;
-    let current = keychain::read_blob(config_dir).map_err(SwapError::Read)?;
+    let current = store.read_blob(config_dir).map_err(SwapError::Read)?;
     let current_json = current.parse().map_err(SwapError::Read)?;
 
     // Only the account identity goes back; machine-bound state stays as it is now.
     let restored = merge_account_into(&current_json, &backup_json);
     let want = identity_of(&backup_json).ok_or(SwapError::VerifyFailed)?;
-    let acct = keychain::item_account(config_dir).map_err(SwapError::Read)?;
-    let blob = keychain::blob_from_value(&restored).map_err(SwapError::Write)?;
-    keychain::write_blob(config_dir, &acct, &blob).map_err(SwapError::Write)?;
+    let acct = store.item_account(config_dir).map_err(SwapError::Read)?;
+    let blob = blob_from_value(&restored).map_err(SwapError::Write)?;
+    store.write_blob(config_dir, &acct, &blob).map_err(SwapError::Write)?;
 
-    let after = keychain::read_blob(config_dir).map_err(SwapError::Read)?;
+    let after = store.read_blob(config_dir).map_err(SwapError::Read)?;
     if identity_of(&after.parse().map_err(SwapError::Read)?).as_deref() != Some(want.as_str()) {
         return Err(SwapError::VerifyFailed);
     }
@@ -165,6 +171,65 @@ fn bump_credentials_mtime(config_dir: &Path) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    use crate::platform::{Blob, Secret, blob_from_value};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    /// In-memory CredentialStore — lets the swap/backup/restore flow be exercised without the real
+    /// Keychain. The old free-function design could only be tested against the live login keychain
+    /// (an `--ignored` test); injecting the store makes this a fast, deterministic unit test.
+    #[derive(Default)]
+    struct FakeStore {
+        live: RefCell<HashMap<String, String>>,
+        backup: RefCell<HashMap<String, String>>,
+    }
+    impl FakeStore {
+        fn seed(&self, dir: &str, blob: serde_json::Value) {
+            self.live.borrow_mut().insert(dir.into(), blob.to_string());
+        }
+        fn token_at(&self, dir: &str) -> String {
+            let raw = self.live.borrow()[dir].clone();
+            serde_json::from_str::<serde_json::Value>(&raw).unwrap()["claudeAiOauth"]["accessToken"].as_str().unwrap().to_string()
+        }
+    }
+    impl CredentialStore for FakeStore {
+        fn read_token(&self, _: &Path) -> Result<Secret, String> { Err("n/a".into()) }
+        fn read_blob(&self, dir: &Path) -> Result<Blob, String> {
+            self.live.borrow().get(dir.to_str().unwrap()).cloned().map(Blob::new).ok_or_else(|| "no item".into())
+        }
+        fn item_account(&self, _: &Path) -> Result<String, String> { Ok("acct@example.invalid".into()) }
+        fn write_blob(&self, dir: &Path, _: &str, blob: &Blob) -> Result<(), String> {
+            self.live.borrow_mut().insert(dir.to_str().unwrap().into(), blob.as_str().to_string()); Ok(())
+        }
+        fn backup_once(&self, dir: &Path, _: &str, blob: &Blob) -> Result<(), String> {
+            self.backup.borrow_mut().entry(dir.to_str().unwrap().into()).or_insert_with(|| blob.as_str().to_string()); Ok(())
+        }
+        fn read_backup(&self, dir: &Path) -> Result<Blob, String> {
+            self.backup.borrow().get(dir.to_str().unwrap()).cloned().map(Blob::new).ok_or_else(|| "no backup".into())
+        }
+    }
+
+    #[test]
+    fn swap_then_restore_preserves_the_original_account_via_a_fake_store() {
+        let store = FakeStore::default();
+        store.seed("/work", json!({"claudeAiOauth": {"accessToken": "WORK", "subscriptionType": "max"}}));
+        store.seed("/personal", json!({"claudeAiOauth": {"accessToken": "PERSONAL", "subscriptionType": "pro"}}));
+
+        // Swap Personal's account INTO /work (the running session's dir).
+        swap_into(&store, Path::new("/work"), Path::new("/personal"), "p_personal", "Personal").unwrap();
+        assert_eq!(store.token_at("/work"), "PERSONAL", "live dir now holds the swapped account");
+        assert_eq!(blob_from_value(&json!(0)).is_ok(), true); // sanity: helper reachable
+
+        // A second swap must not overwrite the snapshot of the true owner.
+        store.seed("/other", json!({"claudeAiOauth": {"accessToken": "OTHER", "subscriptionType": "max"}}));
+        swap_into(&store, Path::new("/work"), Path::new("/other"), "p_other", "Other").unwrap();
+        assert_eq!(store.token_at("/work"), "OTHER");
+
+        // Restore puts WORK back — the account that genuinely owns /work, not the last swapped-in one.
+        restore_original(&store, Path::new("/work"), "p_work", "Work").unwrap();
+        assert_eq!(store.token_at("/work"), "WORK", "restore recovers the original owner across two swaps");
+    }
 
     #[test]
     fn merge_moves_the_account_and_preserves_everything_else() {

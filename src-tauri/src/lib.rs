@@ -91,7 +91,8 @@ async fn export_usage_csv(range: Option<usage_analytics::Range>, path: String) -
 #[tauri::command]
 fn restore_profile_credentials(id: String) -> Result<(), String> {
     let p = store::find(&id).ok_or("no such profile")?;
-    switch::hotswap::restore_original(Path::new(&p.config_dir), &p.id, &p.label)
+    let store = vibeproxy_core::platform::credentials();
+    switch::hotswap::restore_original(&store, Path::new(&p.config_dir), &p.id, &p.label)
         .map_err(|e| e.to_string())
 }
 
@@ -276,7 +277,10 @@ fn relaunch_claude() -> Result<(), String> {
         .and_then(|id| cfg.profiles.into_iter().find(|p| p.id == id))
         .map(|p| p.config_dir);
     match dir {
-        Some(d) => switch::launch_claude(Path::new(&d)).map_err(|e| e.to_string()),
+        Some(d) => {
+            use vibeproxy_core::platform::TerminalLauncher;
+            vibeproxy_core::platform::launcher().launch_claude(Path::new(&d))
+        }
         None => Err("no active profile".to_string()),
     }
 }
