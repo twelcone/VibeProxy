@@ -5,11 +5,11 @@
 //! "touch" it via `claude auth status` so the official client refreshes its (otherwise-expiring) token.
 
 use crate::tray;
-use vibeproxy_core::usage::{client, model::ProfileUsage};
-use vibeproxy_core::{keychain, profile};
+use vibeproxy_core::profile;
+use vibeproxy_core::usage::{model::ProfileUsage, poll_profile};
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::Path,
     sync::Arc,
 };
 use tauri::{AppHandle, Emitter};
@@ -49,7 +49,7 @@ pub fn spawn(app: AppHandle, state: UsageState) {
                 if !is_active && !never_polled && tick % INACTIVE_EVERY != 0 {
                     continue;
                 }
-                let usage = poll_one(&p.id, PathBuf::from(&p.config_dir), is_active).await;
+                let usage = poll_profile(&p.id, Path::new(&p.config_dir), is_active).await;
                 state.write().await.insert(p.id.clone(), usage);
             }
 
@@ -79,67 +79,18 @@ pub fn spawn(app: AppHandle, state: UsageState) {
 async fn refresh_identities(app: &AppHandle, cfg: &profile::Config) {
     let mut changed = false;
     for p in &cfg.profiles {
-        let dir = PathBuf::from(&p.config_dir);
-        let Ok(Ok(status)) =
-            tauri::async_runtime::spawn_blocking(move || profile::account_meta::fetch(&dir)).await
+        let prof = p.clone();
+        // The diff + `claude auth status` read is core; the app owns only the persist + event.
+        let Ok(Some(updated)) =
+            tauri::async_runtime::spawn_blocking(move || profile::refresh_identity(&prof)).await
         else {
-            continue; // `claude` missing or erroring — leave the cache alone
+            continue; // unchanged, logged out, or `claude` errored — leave the cache alone
         };
-        // A logged-out dir keeps its last known identity: blanking it would lose the record of
-        // which account the profile is *supposed* to be, which is what re-login restores.
-        if !status.logged_in {
-            continue;
-        }
-        if status.email == p.email
-            && status.org_id == p.org_id
-            && status.subscription_type == p.subscription_type
-        {
-            continue;
-        }
-        let mut updated = p.clone();
-        updated.email = status.email;
-        updated.org_id = status.org_id;
-        updated.subscription_type = status.subscription_type;
         if profile::store::update_profile(updated).is_ok() {
             changed = true;
         }
     }
     if changed {
         let _ = app.emit("profiles-updated", ());
-    }
-}
-
-async fn poll_one(profile_id: &str, config_dir: PathBuf, is_active: bool) -> ProfileUsage {
-    // Keep inactive profiles' tokens fresh via the official client (ToS-safe refresh).
-    if !is_active {
-        let dir = config_dir.clone();
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            let _ = profile::account_meta::fetch(&dir);
-        })
-        .await;
-    }
-
-    // Read the token off the async executor (Keychain access may block on a GUI prompt once).
-    // A Keychain failure is transient (locked / not-yet-authorized) → Error, NOT NeedsReauth;
-    // only a 401 from the usage endpoint means the token is actually invalid.
-    let token = {
-        let dir = config_dir.clone();
-        match tauri::async_runtime::spawn_blocking(move || keychain::read_token(&dir)).await {
-            Ok(Ok(t)) => t,
-            Ok(Err(e)) => return ProfileUsage::error(profile_id, format!("keychain: {e}")),
-            Err(_) => return ProfileUsage::error(profile_id, "keychain read task failed".into()),
-        }
-    };
-
-    match client::fetch(token.expose()).await {
-        Ok(r) => ProfileUsage::ok(
-            profile_id,
-            r.five_hour.as_ref().and_then(|w| w.utilization),
-            r.five_hour.and_then(|w| w.resets_at),
-            r.seven_day.as_ref().and_then(|w| w.utilization),
-            r.seven_day.and_then(|w| w.resets_at),
-        ),
-        Err(client::FetchError::Unauthorized) => ProfileUsage::needs_reauth(profile_id),
-        Err(client::FetchError::Other(e)) => ProfileUsage::error(profile_id, e),
     }
 }

@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Decouple side effects from the core"
-status: pending
+status: done
 priority: P1
 effort: "1-2d"
 dependencies: [1]

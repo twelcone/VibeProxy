@@ -3,5 +3,7 @@
 
 pub mod client;
 pub mod model;
+pub mod poll;
 
 pub use model::{ProfileUsage, UsageStatus};
+pub use poll::poll_profile;

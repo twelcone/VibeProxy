@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Workspace + vibeproxy-core crate"
-status: pending
+status: done
 priority: P1
 effort: "2d"
 dependencies: []
