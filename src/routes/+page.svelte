@@ -93,8 +93,9 @@
       stats = null; // usage panel just stays hidden; account switching must keep working
     }
   }
-  const INTEGRATION_SNIPPET =
-    `_vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR`;
+  // The canonical snippet comes from the backend (vibeproxy_core::shell) so display, copy, and what
+  // gets installed can never drift. Empty until the status call returns.
+  let integrationSnippet = $state("");
 
   function logActivity(msg: string) {
     const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -120,8 +121,9 @@
   }
   async function checkShellIntegration() {
     try {
-      const st = await invoke<{ installed: boolean }>("shell_integration_status");
+      const st = await invoke<{ installed: boolean; snippet: string }>("shell_integration_status");
       shellInstalled = st.installed;
+      integrationSnippet = st.snippet;
     } catch { shellInstalled = null; }
   }
   async function installShellIntegration() {
@@ -140,7 +142,7 @@
     try { await invoke("open_usage_window"); } catch (e) { banner = `${e}`; }
   }
   async function copySnippet() {
-    try { await navigator.clipboard.writeText(INTEGRATION_SNIPPET); copied = true; setTimeout(() => (copied = false), 1500); }
+    try { await navigator.clipboard.writeText(integrationSnippet); copied = true; setTimeout(() => (copied = false), 1500); }
     catch { /* clipboard unavailable */ }
   }
 
@@ -506,7 +508,7 @@
     {:else}
       <p class="hint2">Add this to your shell profile so new terminals use the active account:</p>
     {/if}
-    <div class="snippet"><code>{INTEGRATION_SNIPPET}</code><button class="btn small" onclick={copySnippet}>{copied ? "Copied ✓" : "Copy"}</button></div>
+    <div class="snippet"><code>{integrationSnippet}</code><button class="btn small" onclick={copySnippet}>{copied ? "Copied ✓" : "Copy"}</button></div>
     {#if shellInstalled !== true}
       <div class="row" style="margin-top:8px">
         <button class="btn primary small" onclick={installShellIntegration}>Install it for me</button>

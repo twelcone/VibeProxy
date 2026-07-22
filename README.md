@@ -51,7 +51,7 @@ Add this to your shell profile (e.g. `~/.zshrc`) so new terminals use the active
 shows it under **Settings → Claude Code integration** with a copy button:
 
 ```sh
-_vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR
+_vpd="${VIBEPROXY_DIR:-$HOME/.vibeproxy}"; _vp="$(cat "$_vpd/active-path" 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR
 ```
 
 Open a new terminal after switching accounts (or use the **Relaunch** button). Switching only affects
@@ -93,7 +93,7 @@ or both. The desktop GUI runs on macOS today; the CLI is the cross-platform surf
 ```sh
 pnpm install
 pnpm tauri dev     # run
-pnpm tauri build   # produce an unsigned .app/.dmg in src-tauri/target/release/bundle
+pnpm tauri build   # produce an unsigned .app/.dmg in target/release/bundle
 ```
 
 Requires Rust (stable), Node 20+, pnpm, and Xcode Command Line Tools.

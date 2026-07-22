@@ -9,12 +9,13 @@
 use std::path::PathBuf;
 
 /// Marker that identifies our block on re-install and detection, independent of exact formatting.
-const MARKER: &str = "vibeproxy/active-path";
+const MARKER: &str = "VIBEPROXY_DIR";
 
 /// The canonical snippet — the single source of truth, surfaced to the UI so it can't drift from
 /// what we actually install.
 pub fn snippet() -> String {
-    "_vp=\"$(cat ~/.vibeproxy/active-path 2>/dev/null)\"; \
+    "_vpd=\"${VIBEPROXY_DIR:-$HOME/.vibeproxy}\"; \
+     _vp=\"$(cat \"$_vpd/active-path\" 2>/dev/null)\"; \
      [ -n \"$_vp\" ] && export CLAUDE_CONFIG_DIR=\"$_vp\" || unset CLAUDE_CONFIG_DIR"
         .to_string()
 }

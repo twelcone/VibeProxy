@@ -102,6 +102,6 @@ fn shell_init_prints_the_integration_line_to_stdout() {
     let (out, _, ok) = run(&d, &["shell-init"]);
     assert!(ok);
     // The line must reference the active-path file so `eval "$(vibeproxy shell-init)"` works.
-    assert!(out.contains("vibeproxy/active-path"), "snippet: {out}");
+    assert!(out.contains("active-path") && out.contains("CLAUDE_CONFIG_DIR"), "snippet: {out}");
     let _ = fs::remove_dir_all(&d);
 }
