@@ -293,6 +293,49 @@
   {#if banner}<div class="banner" role="alert">{banner} <button class="x" onclick={() => (banner = "")}>×</button></div>{/if}
   {#if notice}<div class="notice" role="status">{notice} <button class="x" onclick={() => (notice = "")}>×</button></div>{/if}
 
+  {#if view === "onboarding"}
+  <section class="onboard">
+    <h2 class="welcome">Welcome</h2>
+    <p class="lead">Two quick things and VibeProxy is ready.</p>
+
+    <div class="step">
+      <div class="step-head">
+        <span class="step-badge" class:done={shellInstalled}>{shellInstalled ? "✓" : "1"}</span>
+        <b>Connect it to your terminal</b>
+      </div>
+      <p class="step-body">
+        A switch only reaches new terminals once one line is in your shell profile. Without it,
+        every <code>claude</code> keeps using the same account no matter what you pick here.
+      </p>
+      {#if shellInstalled}
+        <p class="step-ok"><span class="ok-dot"></span>Installed. Open a new terminal for it to take effect.</p>
+      {:else}
+        <button class="btn primary" onclick={installShellIntegration}>Set it up for me</button>
+        {#if installMsg}<p class="step-body" style="margin-top:6px">{installMsg}</p>{/if}
+      {/if}
+    </div>
+
+    <div class="step">
+      <div class="step-head">
+        <span class="step-badge" class:done={profiles.length > 0}>{profiles.length > 0 ? "✓" : "2"}</span>
+        <b>Add your accounts</b>
+      </div>
+      <p class="step-body">
+        {#if profiles.length > 0}
+          {profiles.length} account{profiles.length === 1 ? "" : "s"} connected. Add more any time from Settings.
+        {:else}
+          Add a Claude account so there's something to switch between — you can do this from Settings.
+        {/if}
+      </p>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" onclick={finishOnboarding}>Done</button>
+      <button class="btn ghost" onclick={finishOnboarding}>Skip for now</button>
+    </div>
+  </section>
+  {/if}
+
   {#if view === "home" && shellInstalled === false}
     <div class="warn-banner" role="status">
       <div>
