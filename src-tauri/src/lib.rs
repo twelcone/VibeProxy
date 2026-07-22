@@ -2,17 +2,14 @@
 //! Phase 2: adopt existing logins, read identity, and switch the active profile by real path.
 
 mod autoswitch;
-mod keychain;
 mod onboarding;
 mod platform;
 mod shell;
-mod profile;
-mod switch;
 mod tray;
 mod usage;
-mod usage_analytics;
 
 use std::collections::HashMap;
+use vibeproxy_core::{profile, switch, usage_analytics};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};

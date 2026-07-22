@@ -1,6 +1,6 @@
 //! Menubar tray: renders the profile list from the store, switches on click, hosts the app menu.
 
-use crate::profile;
+use vibeproxy_core::profile;
 use crate::usage::{ProfileUsage, UsageStatus};
 use std::collections::HashMap;
 use tauri::{

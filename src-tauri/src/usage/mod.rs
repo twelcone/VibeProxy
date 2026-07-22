@@ -1,8 +1,7 @@
-//! Usage tracking: poll Anthropic's OAuth usage endpoint per profile and surface it to UI + tray.
+//! App-side usage: the background poller (timer, shared state, events, tray). The fetch client and
+//! the `ProfileUsage` model live in `vibeproxy_core::usage`.
 
-pub mod client;
-pub mod model;
 pub mod poller;
 
-pub use model::{ProfileUsage, UsageStatus};
 pub use poller::UsageState;
+pub use vibeproxy_core::usage::{ProfileUsage, UsageStatus};

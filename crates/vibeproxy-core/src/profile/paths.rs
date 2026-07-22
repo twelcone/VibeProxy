@@ -57,9 +57,9 @@ pub fn swap_journal_file() -> PathBuf {
 
 /// `set_var` is process-global while Rust runs tests on parallel threads, so every test that
 /// touches `VIBEPROXY_DIR` must take THIS lock — one per process, not one per module. Two separate
-/// mutexes guarding the same global provide no mutual exclusion at all.
-#[cfg(test)]
-pub(crate) static ENV_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// mutexes guarding the same global provide no mutual exclusion at all. Public (not `cfg(test)`) so
+/// tests in dependent crates (the app, the CLI) can serialize on the same guard.
+pub static ENV_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {

@@ -4,8 +4,9 @@
 //! to keep the undocumented-endpoint / ToS surface small. Before polling an inactive profile we
 //! "touch" it via `claude auth status` so the official client refreshes its (otherwise-expiring) token.
 
-use super::{client, model::ProfileUsage};
-use crate::{keychain, profile, tray};
+use crate::tray;
+use vibeproxy_core::usage::{client, model::ProfileUsage};
+use vibeproxy_core::{keychain, profile};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
