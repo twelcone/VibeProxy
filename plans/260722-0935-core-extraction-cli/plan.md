@@ -1,7 +1,7 @@
 ---
 title: "Core Extraction + CLI (the everywhere layer)"
 description: "Lift VibeProxy's Tauri-free logic into a standalone `vibeproxy-core` crate and a `vibeproxy` CLI, so the app works headless — WSL, SSH, servers — where no GUI can run, and so future frontends (a native macOS app, a Windows/Linux GUI) become thin layers on one core rather than rewrites."
-status: pending
+status: complete
 priority: P1
 effort: "~1 week"
 tags: [vibeproxy, architecture, workspace, cli, cross-platform]
@@ -50,7 +50,7 @@ emits an event, draws a tray, or spawns a window. It returns values; the app (or
 | 1 | [Workspace + `vibeproxy-core` crate](./phase-01-workspace-core-crate.md) | ✅ Done | — |
 | 2 | [Decouple side effects from the core](./phase-02-decouple-side-effects.md) | ✅ Done | 1 |
 | 3 | [Platform seams behind traits (macOS impl)](./phase-03-platform-seams.md) | ✅ Done | 1 |
-| 4 | [`vibeproxy` CLI (headless / WSL)](./phase-04-cli.md) | Pending | 1, 2, 3 |
+| 4 | [`vibeproxy` CLI (headless / WSL)](./phase-04-cli.md) | ✅ Done | 1, 2, 3 |
 | 5 | [Future: per-OS backends + native frontends](./phase-05-future-tracks.md) | Pending | 4 |
 
 Phases 1–4 are the deliverable: a working CLI on a clean core, with the Tauri app still working

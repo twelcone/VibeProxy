@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/vibeproxy-core"]
+members = ["src-tauri", "crates/vibeproxy-core", "crates/vibeproxy-cli"]

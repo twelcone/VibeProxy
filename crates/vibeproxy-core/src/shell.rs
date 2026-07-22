@@ -83,7 +83,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         // Point HOME at the temp dir for the duration (serialized: see paths::ENV_SERIAL).
-        let _g = vibeproxy_core::profile::paths::ENV_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = crate::profile::paths::ENV_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let prev = std::env::var("HOME").ok();
         std::env::set_var("HOME", &tmp);
         std::env::set_var("SHELL", "/bin/zsh");

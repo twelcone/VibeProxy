@@ -6,6 +6,40 @@ pub mod store;
 
 pub use store::{Config, Profile, Settings};
 
+/// Adopt an existing Claude login at `config_dir` as a new profile: read its identity, reject a
+/// dir with no login, de-dupe by config-dir or org, and make it active if it is the first profile.
+/// Returns the created profile. The desktop app calls this then refreshes the tray; the CLI calls it
+/// directly. Contains no GUI concerns.
+pub fn adopt(label: String, config_dir: &str) -> Result<Profile, String> {
+    let config_dir = paths::expand_tilde(config_dir);
+    let status = account_meta::fetch(std::path::Path::new(&config_dir))?;
+    if !status.logged_in {
+        return Err("no logged-in Claude account at that config dir".to_string());
+    }
+    let cfg = store::load();
+    if let Some(existing) = cfg.profiles.iter().find(|p| {
+        p.config_dir == config_dir || (p.org_id.is_some() && p.org_id == status.org_id)
+    }) {
+        return Err(format!("that account is already added as \"{}\"", existing.label));
+    }
+    let is_first = cfg.profiles.is_empty();
+    let profile = Profile {
+        id: store::new_id(),
+        label,
+        config_dir,
+        email: status.email,
+        org_id: status.org_id,
+        subscription_type: status.subscription_type,
+        priority: cfg.profiles.len() as i32,
+        created_at: String::new(),
+    };
+    store::add_profile(profile.clone()).map_err(|e| e.to_string())?;
+    if is_first {
+        crate::switch::activate_profile(&profile.id)?;
+    }
+    Ok(profile)
+}
+
 /// Given a profile and a freshly-read auth status, return an updated profile **iff** the account
 /// identity actually changed. Pure — no I/O, no persistence — so it is unit-testable. A logged-out
 /// status returns `None`: blanking a profile's identity would lose the record of which account it is

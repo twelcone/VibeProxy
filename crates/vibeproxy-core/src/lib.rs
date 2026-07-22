@@ -5,6 +5,7 @@
 
 pub mod autoswitch;
 pub mod platform;
+pub mod shell;
 pub mod profile;
 pub mod switch;
 pub mod usage;

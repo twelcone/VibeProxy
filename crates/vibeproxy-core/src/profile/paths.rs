@@ -48,6 +48,16 @@ pub fn profiles_dir() -> PathBuf {
     vibeproxy_dir().join("profiles")
 }
 
+/// Expand a leading `~/` to the home dir. Rust's path/Command APIs don't do shell tilde expansion.
+pub fn expand_tilde(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest).to_string_lossy().to_string();
+        }
+    }
+    p.to_string()
+}
+
 /// Append-only log of account-occupancy boundaries: `~/.vibeproxy/swaps.jsonl`.
 /// Written when an account is hot-swapped into a config dir; read by the analytics scanner so
 /// usage is attributed to whoever owned the dir at the time, not to whoever owns it now.

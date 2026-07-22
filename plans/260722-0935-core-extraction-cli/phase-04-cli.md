@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "vibeproxy CLI (headless / WSL)"
-status: pending
+status: done
 priority: P1
 effort: "2d"
 dependencies: [1, 2, 3]

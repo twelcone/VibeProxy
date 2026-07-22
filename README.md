@@ -57,6 +57,29 @@ _vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUD
 Open a new terminal after switching accounts (or use the **Relaunch** button). Switching only affects
 **new** `claude` launches — a running session keeps its account.
 
+## Headless / CLI (WSL, SSH, servers)
+
+A menubar app can't run where there's no desktop — WSL, an SSH session, a container — but `claude`
+does. The `vibeproxy` CLI is the same core without the GUI, so it works anywhere:
+
+```sh
+vibeproxy list                 # accounts, * marks the active one
+vibeproxy switch work          # by id or label
+vibeproxy status               # active account + its 5-hour / weekly usage
+vibeproxy usage                # token analytics from your local logs (--json for scripts)
+vibeproxy export usage.csv     # the same analytics as CSV
+vibeproxy adopt work ~/.vibeproxy/profiles/work
+vibeproxy auto                 # switch once if the active account is over the threshold
+eval "$(vibeproxy shell-init)" # wire switching into this shell (or --install to persist)
+```
+
+Inside WSL this is the *correct* interface, not a fallback: it manages the credentials in the same
+Linux userland `claude` uses, with no reaching across the Windows boundary. Read commands take
+`--json`; the shapes match the app's, so anything scripting the GUI's data works against the CLI too.
+
+The app and CLI share one Rust core (`vibeproxy-core`) and read the same files, so you can use either
+or both. The desktop GUI runs on macOS today; the CLI is the cross-platform surface.
+
 ## Usage
 
 - Click the menubar icon → **Open VibeProxy**.

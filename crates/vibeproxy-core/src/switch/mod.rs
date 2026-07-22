@@ -34,3 +34,17 @@ pub fn set_active_config_dir(config_dir: &str) -> std::io::Result<()> {
     fs::rename(&tmp, &path)?;
     Ok(())
 }
+
+/// Make a profile active: write the right active-path value and record it as active. The default
+/// `~/.claude` account clears active-path (so the shell UNSETS CLAUDE_CONFIG_DIR); any other profile
+/// writes its real path. Shared by the desktop app (which then refreshes the tray) and the CLI.
+pub fn activate_profile(id: &str) -> Result<(), String> {
+    let p = crate::profile::store::find(id).ok_or("no such profile")?;
+    let write_val = if crate::profile::paths::is_default(std::path::Path::new(&p.config_dir)) {
+        ""
+    } else {
+        &p.config_dir
+    };
+    set_active_config_dir(write_val).map_err(|e| e.to_string())?;
+    crate::profile::store::set_active_profile_id(id).map_err(|e| e.to_string())
+}

@@ -4,7 +4,6 @@
 mod autoswitch;
 mod onboarding;
 mod platform;
-mod shell;
 mod tray;
 mod usage;
 
@@ -100,13 +99,13 @@ fn restore_profile_credentials(id: String) -> Result<(), String> {
 /// canonical snippet to display.
 #[tauri::command]
 fn shell_integration_status() -> ShellStatus {
-    ShellStatus { installed: shell::is_installed(), snippet: shell::snippet() }
+    ShellStatus { installed: vibeproxy_core::shell::is_installed(), snippet: vibeproxy_core::shell::snippet() }
 }
 
 /// Append the shell integration to the user's rc file (idempotent). Returns the file touched.
 #[tauri::command]
 fn install_shell_integration() -> Result<String, String> {
-    shell::install()
+    vibeproxy_core::shell::install()
 }
 
 /// Mark first-run setup complete so the onboarding screen isn't shown again.
@@ -204,32 +203,7 @@ fn adopt_profile(
     label: String,
     config_dir: String,
 ) -> Result<profile::Profile, String> {
-    let config_dir = expand_tilde(config_dir);
-    let status = profile::account_meta::fetch(Path::new(&config_dir))?;
-    if !status.logged_in {
-        return Err("no logged-in Claude account at that config dir".to_string());
-    }
-    let cfg = store::load();
-    if let Some(existing) = cfg.profiles.iter().find(|p| {
-        p.config_dir == config_dir || (p.org_id.is_some() && p.org_id == status.org_id)
-    }) {
-        return Err(format!("that account is already added as \"{}\"", existing.label));
-    }
-    let is_first = cfg.profiles.is_empty();
-    let profile = profile::Profile {
-        id: store::new_id(),
-        label,
-        config_dir,
-        email: status.email,
-        org_id: status.org_id,
-        subscription_type: status.subscription_type,
-        priority: cfg.profiles.len() as i32,
-        created_at: String::new(),
-    };
-    store::add_profile(profile.clone()).map_err(|e| e.to_string())?;
-    if is_first {
-        activate(&app, &profile.id)?;
-    }
+    let profile = profile::adopt(label, &config_dir)?;
     tray::refresh(&app);
     Ok(profile)
 }
@@ -327,29 +301,11 @@ fn refresh_profile_meta(app: AppHandle, id: String) -> Result<profile::Profile, 
 /// Core switch: point active-path at the profile's real config dir, persist, refresh the tray.
 /// Shared by the tray click handler and the `set_active_profile` command.
 pub(crate) fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
-    let p = store::find(id).ok_or("no such profile")?;
-    // Default account → clear active-path so the shell UNSETS CLAUDE_CONFIG_DIR (see paths::is_default).
-    // Any other profile → write its real path.
-    let write_val = if profile::paths::is_default(Path::new(&p.config_dir)) {
-        ""
-    } else {
-        &p.config_dir
-    };
-    switch::set_active_config_dir(write_val).map_err(|e| e.to_string())?;
-    store::set_active_profile_id(id).map_err(|e| e.to_string())?;
+    switch::activate_profile(id)?;
     tray::refresh(app);
     Ok(())
 }
 
-/// Expand a leading `~/` to the home dir (Rust's `Command`/paths don't do shell tilde expansion).
-fn expand_tilde(p: String) -> String {
-    if let Some(rest) = p.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest).to_string_lossy().to_string();
-        }
-    }
-    p
-}
 
 /// First run: if there are no profiles yet, adopt the default `~/.claude` login as "Main".
 fn bootstrap_default_profile(app: &AppHandle) {
