@@ -4971,7 +4971,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibeproxy"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
@@ -4991,7 +4991,7 @@ dependencies = [
 
 [[package]]
 name = "vibeproxy-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "serde",
@@ -5002,7 +5002,7 @@ dependencies = [
 
 [[package]]
 name = "vibeproxy-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
@@ -5015,7 +5015,7 @@ dependencies = [
 
 [[package]]
 name = "vibeproxy-ffi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde_json",
  "tokio",

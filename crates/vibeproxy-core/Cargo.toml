@@ -1,6 +1,6 @@
 [package]
 name = "vibeproxy-core"
-version = "0.2.0"
+version = "0.2.1"
 description = "VibeProxy's Tauri-free core: profiles, credentials, usage analytics, switching."
 authors = ["twelcone"]
 edition = "2021"

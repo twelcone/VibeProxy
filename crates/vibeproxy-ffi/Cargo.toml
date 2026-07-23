@@ -1,6 +1,6 @@
 [package]
 name = "vibeproxy-ffi"
-version = "0.2.0"
+version = "0.2.1"
 description = "Swift-facing FFI over vibeproxy-core (uniffi). A thin adapter, like the CLI and the Tauri app — core stays FFI-free."
 edition = "2021"
 
