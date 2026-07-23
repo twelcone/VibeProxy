@@ -20,12 +20,13 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # Only the platform-agnostic crates. The Tauri app is macOS-only and needs GUI system libs;
-      # building core + CLI here is what exercises the non-macOS `FileStore` default.
+      # The platform-agnostic crates. The Tauri app is macOS-only and needs GUI system libs; core +
+      # CLI + the uniffi FFI all build cross-platform, and this exercises the non-macOS `FileStore`
+      # default. (The FFI's hermetic tests don't need macOS — they never poll or open a GUI.)
       - name: Test
-        run: cargo test -p vibeproxy-core -p vibeproxy-cli
+        run: cargo test -p vibeproxy-core -p vibeproxy-cli -p vibeproxy-ffi
       - name: Clippy
-        run: cargo clippy -p vibeproxy-core -p vibeproxy-cli --all-targets -- -D warnings
+        run: cargo clippy -p vibeproxy-core -p vibeproxy-cli -p vibeproxy-ffi --all-targets -- -D warnings
 
   macos-full:
     name: macOS · full workspace + frontend
@@ -56,3 +57,8 @@ jobs:
         run: cargo test --workspace
       - name: Clippy (whole workspace)
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # The native macOS app builds with the Command Line Tools Swift toolchain (no Xcode). This
+      # compiles it end to end — Rust FFI dylib, generated Swift bindings, and the SwiftUI sources —
+      # so a break in any of them fails CI.
+      - name: Build macOS app
+        run: ./apps/macos/build.sh

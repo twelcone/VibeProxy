@@ -2,7 +2,7 @@
 //! Phase 2: adopt existing logins, read identity, and switch the active profile by real path.
 
 mod autoswitch;
-mod onboarding;
+use vibeproxy_core::onboarding;
 mod platform;
 mod tray;
 mod usage;

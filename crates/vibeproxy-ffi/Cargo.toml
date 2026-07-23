@@ -1,0 +1,23 @@
+[package]
+name = "vibeproxy-ffi"
+version = "0.2.0"
+description = "Swift-facing FFI over vibeproxy-core (uniffi). A thin adapter, like the CLI and the Tauri app — core stays FFI-free."
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+name = "vibeproxy_ffi"
+
+[dependencies]
+vibeproxy-core = { path = "../vibeproxy-core" }
+uniffi = { version = "0.28", features = ["cli"] }
+serde_json = "1"
+# Live usage polling is async (reqwest); the FFI blocks on a small runtime so Swift calls stay sync.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"

@@ -38,7 +38,31 @@ Original notes:
   the WSL-side store — messy. The clean answer for WSL users is the Linux CLI *inside* WSL, not the
   Windows GUI reaching in. Document this explicitly.
 
-## Track C — native macOS app (the "macOS-exclusive")
+## Track C — native macOS app (the "macOS-exclusive")  ✅ DONE (builds and runs)
+
+**FFI layer** (`crates/vibeproxy-ffi`): a uniffi adapter over the core — a peer of the CLI and the
+Tauri app, so the core stays FFI-free. Rich types cross as JSON strings (the same shapes the CLI's
+`--json` emits), decoded on the Swift side with Codable; actions return `Result`, which becomes a
+throwing Swift function. Exposed: `coreVersion`, `listProfilesJson`, `activeProfileId`,
+`usageJson(range:)`, `switchProfile(target:)`, `shellSnippet`. Three hermetic Rust tests cover it in CI.
+
+**The app** (`apps/macos`): a SwiftUI `MenuBarExtra` popover + a full analytics `Window`, driving the
+core directly through the FFI — no webview. Menu bar shows a gauge + live spend; popover has the active
+account, range picker, token-class bar, and one-click account switching; the window has stat cards, a
+daily-tokens trend chart (native Swift Charts), and per-model/per-account breakdowns.
+
+**Built without Xcode.** The macOS SDK shipped with Command Line Tools contains `SwiftUI`, `AppKit`,
+and `Charts`, so `apps/macos/build.sh` compiles the app with `swiftc` and hand-assembles the `.app`
+bundle (no `xcodebuild`). CI builds it on every push.
+
+**Complete + E2E tested.** The app leads with live quota (5-hour + weekly %, the product's headline),
+account switching (Active badge / Switch ›, plus "Open Claude" to make a switch take effect), add /
+remove accounts, the analytics window, and a shell-integration setup hint. Every feature is E2E
+tested — hermetic Rust tests for the FFI/core glue, live verification for the endpoint/GUI paths —
+see `plans/reports/test-260723-1232-macos-app-e2e.md`. Three real bugs were found and fixed in the
+process (config-corruption data loss, quota-blanking on a transient 429, self-inflicted rate limiting).
+
+Original notes:
 
 - **How it attaches:** `uniffi` generates Swift bindings from `vibeproxy-core`; SwiftUI calls the
   Rust core directly — no logic rewritten. The menubar becomes stock `MenuBarExtra` (auto-sized,
