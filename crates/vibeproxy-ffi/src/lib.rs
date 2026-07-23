@@ -104,6 +104,53 @@ pub fn usage_all_json() -> Result<String, FfiError> {
     serde_json::to_string(&usages).map_err(err)
 }
 
+/// Begin adding an account: create an isolated config dir and open a Terminal running the real
+/// `claude auth login` scoped to it. Returns the pending config dir; the app polls `check_login_json`
+/// until the browser OAuth completes, then calls `adopt_profile`.
+#[uniffi::export]
+pub fn begin_add_profile() -> Result<String, FfiError> {
+    let dir = vibeproxy_core::onboarding::prepare().map_err(err)?;
+    vibeproxy_core::onboarding::launch_login(&dir).map_err(err)?;
+    Ok(dir)
+}
+
+/// Poll whether the login into `config_dir` has completed. Returns the account identity as JSON
+/// (`AuthStatus`: `loggedIn`, `email`, `orgId`, `subscriptionType`).
+#[uniffi::export]
+pub fn check_login_json(config_dir: String) -> Result<String, FfiError> {
+    let status =
+        vibeproxy_core::profile::account_meta::fetch(Path::new(&config_dir)).map_err(err)?;
+    serde_json::to_string(&status).map_err(err)
+}
+
+/// Register a logged-in config dir as a new account. Makes it active if it is the first profile.
+#[uniffi::export]
+pub fn adopt_profile(label: String, config_dir: String) -> Result<(), FfiError> {
+    vibeproxy_core::profile::adopt(label, &config_dir).map(|_| ()).map_err(FfiError::Message)
+}
+
+/// Abandon an in-progress add (removes the not-yet-registered profile dir).
+#[uniffi::export]
+pub fn cancel_add_profile(config_dir: String) -> Result<(), FfiError> {
+    vibeproxy_core::onboarding::cleanup(&config_dir).map_err(err)
+}
+
+/// Remove an account from VibeProxy (leaves its Claude login / Keychain item untouched). If it was
+/// active, re-point to the first remaining profile, or clear the active path so terminals fall back
+/// to the default account.
+#[uniffi::export]
+pub fn remove_profile(id: String) -> Result<(), FfiError> {
+    let was_active = store::load().active_profile_id.as_deref() == Some(id.as_str());
+    store::remove_profile(&id).map_err(err)?;
+    if was_active {
+        match store::load().profiles.first().map(|p| p.id.clone()) {
+            Some(next) => vibeproxy_core::switch::activate_profile(&next).map_err(FfiError::Message)?,
+            None => vibeproxy_core::switch::set_active_config_dir("").map_err(err)?,
+        }
+    }
+    Ok(())
+}
+
 /// The shell integration line, so the Swift app can show/copy it like the Tauri app does.
 #[uniffi::export]
 pub fn shell_snippet() -> String {

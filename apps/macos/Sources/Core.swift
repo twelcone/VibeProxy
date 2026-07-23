@@ -22,6 +22,28 @@ enum Core {
         try decode([ProfileUsage].self, from: usageAllJson())
     }
 
+    // MARK: Add / remove accounts
+
+    /// Create an isolated config dir and open a Terminal running `claude auth login` for it.
+    /// Returns the pending config dir to poll.
+    static func beginAdd() throws -> String { try beginAddProfile() }
+
+    /// Poll whether the login into `configDir` completed.
+    static func checkLogin(_ configDir: String) throws -> AuthStatus {
+        try decode(AuthStatus.self, from: checkLoginJson(configDir: configDir))
+    }
+
+    /// Register a logged-in config dir as a new account.
+    static func adopt(label: String, dir: String) throws {
+        try adoptProfile(label: label, configDir: dir)
+    }
+
+    /// Abandon an in-progress add (removes the not-yet-registered dir).
+    static func cancelAdd(_ configDir: String) throws { try cancelAddProfile(configDir: configDir) }
+
+    /// Remove an account from VibeProxy (its Claude login is left untouched).
+    static func remove(_ id: String) throws { try removeProfile(id: id) }
+
     /// `range` is "FROM..TO" (either side may be empty), or nil for all time.
     static func usage(range: String?) throws -> Analytics {
         try decode(Analytics.self, from: usageJson(range: range))

@@ -1,5 +1,6 @@
 //! Adding a new account: create an isolated config dir, drive the real `claude auth login` into it,
-//! and (via the poll in lib.rs) register it once the browser OAuth completes.
+//! and (once the browser OAuth completes) register it via `profile::adopt`. No GUI concerns — the
+//! CLI, the Tauri app, and the macOS app all drive this same flow.
 
 use crate::profile::paths;
 use std::{fs, path::Path};
@@ -71,5 +72,35 @@ pub fn gc_orphans() {
         if path.is_dir() && !registered.contains(&path.to_string_lossy().to_string()) {
             let _ = fs::remove_dir_all(&path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profile::paths;
+
+    #[test]
+    fn prepare_creates_a_dir_and_cleanup_is_guarded() {
+        let _g = paths::ENV_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = std::env::temp_dir().join(format!("vp-onb-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        std::env::set_var("VIBEPROXY_DIR", &tmp);
+        assert_eq!(paths::vibeproxy_dir(), tmp, "isolation in effect");
+
+        let dir = prepare().unwrap();
+        let path = Path::new(&dir);
+        assert!(path.is_dir(), "prepared dir exists");
+        assert!(path.starts_with(paths::profiles_dir()), "under our profiles dir");
+
+        // cleanup refuses a path outside our profiles dir…
+        cleanup("/etc").unwrap();
+        assert!(Path::new("/etc").exists(), "guard left /etc alone");
+        // …and removes one inside it.
+        cleanup(&dir).unwrap();
+        assert!(!path.exists(), "cleaned up");
+
+        std::env::remove_var("VIBEPROXY_DIR");
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

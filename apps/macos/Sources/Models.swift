@@ -103,6 +103,14 @@ struct ProfileUsage: Codable, Identifiable {
     var id: String { profileId }
 }
 
+/// Result of polling whether a pending login has completed (mirrors the core's AuthStatus).
+struct AuthStatus: Codable {
+    let loggedIn: Bool
+    let email: String?
+    let orgId: String?
+    let subscriptionType: String?
+}
+
 struct Profile: Codable, Identifiable {
     let id: String
     let label: String

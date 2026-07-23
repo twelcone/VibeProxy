@@ -90,9 +90,38 @@ struct PanelView: View {
                     profile: p,
                     isActive: p.id == state.activeId,
                     usage: state.usage[p.id],
-                    switchAction: { state.switchTo(p) }
+                    switchAction: { state.switchTo(p) },
+                    removeAction: { state.removeAccount(p) }
                 )
             }
+            addControl
+        }
+    }
+
+    @ViewBuilder private var addControl: some View {
+        if state.adding {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(state.addMessage ?? "Adding account…")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Spacer()
+                Button("Cancel") { state.cancelAdd() }
+                    .buttonStyle(.borderless).font(.caption)
+            }
+            .padding(.top, 2)
+        } else {
+            HStack {
+                Button(action: { state.addAccount() }) {
+                    Label("Add account", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+                if let msg = state.addMessage {
+                    Text(msg).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .font(.callout)
+            .padding(.top, 2)
         }
     }
 
@@ -154,6 +183,7 @@ struct AccountRowView: View {
     let isActive: Bool
     let usage: ProfileUsage?
     let switchAction: () -> Void
+    let removeAction: () -> Void
 
     var body: some View {
         Button(action: switchAction) {
@@ -180,6 +210,9 @@ struct AccountRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(isActive)
+        .contextMenu {
+            Button("Remove account", role: .destructive, action: removeAction)
+        }
     }
 
     private func pctColor(_ pct: Double) -> Color {

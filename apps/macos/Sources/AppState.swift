@@ -110,4 +110,72 @@ final class AppState: ObservableObject {
             }
         }
     }
+
+    // MARK: Add / remove accounts
+
+    @Published var adding = false
+    @Published var addMessage: String?
+    private var pendingDir: String?
+    private var addTask: Task<Void, Never>?
+
+    /// Start the add-account flow: open Claude's login in Terminal, then poll until it completes and
+    /// register the account. Runs independent of the popover's lifetime, so closing it doesn't abort.
+    func addAccount() {
+        guard !adding else { return }
+        adding = true
+        addMessage = "Opening Claude login…"
+        addTask = Task.detached { [weak self] in
+            guard let self else { return }
+            do {
+                let dir = try Core.beginAdd()
+                await MainActor.run {
+                    self.pendingDir = dir
+                    self.addMessage = "Complete the login in Terminal…"
+                }
+                // Poll ~3 minutes for the browser OAuth to land credentials in the Keychain.
+                for _ in 0..<90 {
+                    if Task.isCancelled { return }
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    if let status = try? Core.checkLogin(dir), status.loggedIn {
+                        let count = await MainActor.run { self.profiles.count }
+                        try Core.adopt(label: status.email ?? "Account \(count + 1)", dir: dir)
+                        await MainActor.run { self.resetAdd(nil); self.refresh() }
+                        return
+                    }
+                }
+                try? Core.cancelAdd(dir)
+                await MainActor.run { self.resetAdd("Login timed out — try again") }
+            } catch {
+                if let dir = await MainActor.run(body: { self.pendingDir }) {
+                    try? Core.cancelAdd(dir)
+                }
+                await MainActor.run { self.resetAdd(String(describing: error)) }
+            }
+        }
+    }
+
+    func cancelAdd() {
+        addTask?.cancel()
+        let dir = pendingDir
+        Task.detached { if let dir { try? Core.cancelAdd(dir) } }
+        resetAdd(nil)
+    }
+
+    func removeAccount(_ profile: Profile) {
+        Task.detached(priority: .userInitiated) {
+            do {
+                try Core.remove(profile.id)
+                await MainActor.run { self.refresh() }
+            } catch {
+                await MainActor.run { self.error = String(describing: error) }
+            }
+        }
+    }
+
+    private func resetAdd(_ message: String?) {
+        adding = false
+        addMessage = message
+        pendingDir = nil
+        addTask = nil
+    }
 }

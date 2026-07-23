@@ -11,7 +11,9 @@ The headline is **quota**, not cost — how much of your Claude Code Pro/Max lim
 - **Menu bar:** a gauge + the active account's live 5-hour quota % (e.g. `33%`), the glanceable
   "am I about to run out" number.
 - **Popover:** the active account's 5-hour and weekly limits (percent + bar + reset countdown), and
-  the account switcher — every account with its own live 5-hour %, one click to switch.
+  the account switcher — every account with its own live 5-hour %, one click to switch. **Add account**
+  opens Claude's login in Terminal (scoped to a fresh config dir) and registers it once OAuth completes;
+  right-click an account to remove it (its Claude login is left untouched).
 - **Analytics window:** the historical, secondary view — stat cards, a daily-tokens trend chart
   (native Swift Charts), per-model/per-account breakdowns, and a per-model table. "API value" here is
   API-equivalent cost, not your subscription price.
