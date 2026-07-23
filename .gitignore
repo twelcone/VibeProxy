@@ -34,3 +34,5 @@ vite.config.ts.timestamp-*
 # Editor
 .idea/
 *.swp
+crates/vibeproxy-ffi/generated/
+apps/macos/build/

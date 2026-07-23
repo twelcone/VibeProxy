@@ -38,7 +38,25 @@ Original notes:
   the WSL-side store — messy. The clean answer for WSL users is the Linux CLI *inside* WSL, not the
   Windows GUI reaching in. Document this explicitly.
 
-## Track C — native macOS app (the "macOS-exclusive")
+## Track C — native macOS app (the "macOS-exclusive")  ✅ FFI foundation DONE
+
+**Implemented** (`crates/vibeproxy-ffi`): a uniffi adapter over the core — a peer of the CLI and the
+Tauri app, so the core stays FFI-free. Rich types cross as JSON strings (the same shapes the CLI's
+`--json` emits), decoded on the Swift side with Codable; actions return `Result`, which becomes a
+throwing Swift function. Exposed: `coreVersion`, `listProfilesJson`, `activeProfileId`,
+`usageJson(range:)`, `switchProfile(target:)`, `shellSnippet`.
+
+**Verified end to end on this machine**: `crates/vibeproxy-ffi/generate-swift.sh` builds the crate,
+generates Swift bindings, and a Swift program links the Rust dylib and calls the core — decoding real
+analytics (3.3B tokens) through the boundary, switching profiles, and catching an unknown-target error
+as a Swift exception. Hermetic Rust tests (3) cover the FFI functions in CI.
+
+**Remaining for Track C — needs full Xcode (not just Command Line Tools):** the SwiftUI menubar app
+itself (MenuBarExtra + views + SwiftUI Charts on top of these functions). It could not be built or run
+in this environment (`xcodebuild` unavailable), so it is deliberately NOT written blind — the FFI is
+the risky part and it is proven; the UI is a straightforward consumer to build where Xcode exists.
+
+Original notes:
 
 - **How it attaches:** `uniffi` generates Swift bindings from `vibeproxy-core`; SwiftUI calls the
   Rust core directly — no logic rewritten. The menubar becomes stock `MenuBarExtra` (auto-sized,
