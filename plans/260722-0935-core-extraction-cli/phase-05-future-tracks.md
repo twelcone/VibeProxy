@@ -53,9 +53,14 @@ daily-tokens trend chart (native Swift Charts), and per-model/per-account breakd
 
 **Built without Xcode.** The macOS SDK shipped with Command Line Tools contains `SwiftUI`, `AppKit`,
 and `Charts`, so `apps/macos/build.sh` compiles the app with `swiftc` and hand-assembles the `.app`
-bundle (no `xcodebuild`). Verified on this machine: the app launches, the menu-bar value and popover
-render real analytics ($6.8k / 3.1B tokens over 30 days), and the analytics window's chart + tables
-render the real daily trend — all live from the Rust core.
+bundle (no `xcodebuild`). CI builds it on every push.
+
+**Complete + E2E tested.** The app leads with live quota (5-hour + weekly %, the product's headline),
+account switching (Active badge / Switch ›, plus "Open Claude" to make a switch take effect), add /
+remove accounts, the analytics window, and a shell-integration setup hint. Every feature is E2E
+tested — hermetic Rust tests for the FFI/core glue, live verification for the endpoint/GUI paths —
+see `plans/reports/test-260723-1232-macos-app-e2e.md`. Three real bugs were found and fixed in the
+process (config-corruption data loss, quota-blanking on a transient 429, self-inflicted rate limiting).
 
 Original notes:
 
