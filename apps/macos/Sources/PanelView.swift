@@ -86,18 +86,9 @@ struct PanelView: View {
                     isActive: p.id == state.activeId,
                     usage: state.usage[p.id],
                     switchAction: { state.switchTo(p) },
+                    openClaudeAction: { state.openClaude() },
                     removeAction: { state.removeAccount(p) }
                 )
-            }
-            if state.activeProfile != nil {
-                Button(action: { state.openClaude() }) {
-                    Label("Open Claude on \(state.activeProfile?.label ?? "active")", systemImage: "terminal")
-                        .frame(maxWidth: .infinity)
-                }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .help("Open a terminal running Claude on the active account, so the switch takes effect now")
-                .padding(.top, 2)
             }
             if !state.shellInstalled {
                 HStack(alignment: .top, spacing: 6) {
@@ -191,51 +182,74 @@ struct QuotaRow: View {
     }
 }
 
-/// A switchable account: active marker, label/email, and its live 5-hour quota.
+/// A switchable account: active marker, label/email, and its live 5-hour quota. A non-active row is a
+/// one-click switch. The active row isn't tappable — switching is the action, and a new terminal picks
+/// up the account automatically via the shell integration; the small terminal button is just a shortcut
+/// to open one now (mirrors the Tauri panel's per-row affordance).
 struct AccountRowView: View {
     let profile: Profile
     let isActive: Bool
     let usage: ProfileUsage?
     let switchAction: () -> Void
+    let openClaudeAction: () -> Void
     let removeAction: () -> Void
 
     var body: some View {
-        Button(action: switchAction) {
-            HStack(spacing: 8) {
-                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isActive ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(profile.label).fontWeight(isActive ? .semibold : .regular)
-                    if let email = profile.email {
-                        Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-                Spacer()
-                if let pct = usage?.fiveHourPct {
-                    Text(Fmt.pct(pct))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(pctColor(pct))
-                } else if usage?.status == .needsReauth {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        .font(.caption)
-                }
-                // The affordance: active reads as "Active", the rest as a tappable "Switch".
-                if isActive {
+        Group {
+            if isActive {
+                HStack(spacing: 8) {
+                    identity
+                    Spacer()
+                    quota
                     Text("Active").font(.caption2.weight(.semibold)).foregroundStyle(.green)
-                } else {
-                    Text("Switch").font(.caption2.weight(.semibold)).foregroundStyle(.tint)
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    Button(action: openClaudeAction) {
+                        Image(systemName: "terminal")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Open a terminal running Claude on this account")
                 }
+                .padding(.vertical, 5).padding(.horizontal, 8)
+                .background(.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+            } else {
+                Button(action: switchAction) {
+                    HStack(spacing: 8) {
+                        identity
+                        Spacer()
+                        quota
+                        Text("Switch").font(.caption2.weight(.semibold)).foregroundStyle(.tint)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 5).padding(.horizontal, 8)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.vertical, 5).padding(.horizontal, 8)
-            .background(isActive ? AnyShapeStyle(.green.opacity(0.10)) : AnyShapeStyle(.quaternary.opacity(0.4)),
-                        in: RoundedRectangle(cornerRadius: 7))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(isActive)
         .contextMenu {
             Button("Remove account", role: .destructive, action: removeAction)
+        }
+    }
+
+    private var identity: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isActive ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(profile.label).fontWeight(isActive ? .semibold : .regular)
+                if let email = profile.email {
+                    Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var quota: some View {
+        if let pct = usage?.fiveHourPct {
+            Text(Fmt.pct(pct)).font(.caption.monospacedDigit()).foregroundStyle(pctColor(pct))
+        } else if usage?.status == .needsReauth {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.caption)
         }
     }
 
