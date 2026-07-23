@@ -1,6 +1,6 @@
 [package]
 name = "vibeproxy-cli"
-version = "0.2.0"
+version = "0.2.1"
 description = "Headless VibeProxy — switch Claude Code accounts and read usage from any terminal (incl. WSL/SSH)."
 authors = ["twelcone"]
 edition = "2021"
