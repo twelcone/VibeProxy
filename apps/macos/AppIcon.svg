@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c3648"/><stop offset="1" stop-color="#0d121d"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.5" cy="0.30" r="0.78">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0.62" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="coral" x1="0.15" y1="0.08" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#ff9068"/><stop offset="1" stop-color="#ef5c3f"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0.85" y1="0.08" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#34e0c8"/><stop offset="1" stop-color="#12b3a0"/>
+    </linearGradient>
+    <linearGradient id="dialsheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ndrop" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="11" flood-color="#000" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="229" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="229" fill="url(#sheen)"/>
+
+  <g>
+    <path d="M512 196 A316 316 0 0 0 512 828 Z" fill="url(#coral)"/>
+    <path d="M512 196 A316 316 0 0 1 512 828 Z" fill="url(#teal)"/>
+    <line x1="512" y1="190" x2="512" y2="834" stroke="#0c1119" stroke-width="11" stroke-linecap="round"/>
+    <circle cx="512" cy="512" r="316" fill="url(#dialsheen)"/>
+    <circle cx="512" cy="512" r="316" fill="none" stroke="#ffffff" stroke-opacity="0.26" stroke-width="6"/>
+    <circle cx="512" cy="512" r="316" fill="none" stroke="#000000" stroke-opacity="0.22" stroke-width="2"/>
+  </g>
+
+  <g filter="url(#ndrop)">
+    <path d="M512 512 L651 288" stroke="#f8fafc" stroke-width="25" stroke-linecap="round"/>
+    <circle cx="512" cy="512" r="42" fill="#f8fafc"/>
+    <circle cx="512" cy="512" r="17" fill="#0d121d"/>
+  </g>
+</svg>

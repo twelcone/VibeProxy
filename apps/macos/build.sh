@@ -23,6 +23,9 @@ cp "$ROOT/target/release/libvibeproxy_ffi.dylib" "$APP/Contents/Frameworks/"
 # The binary loads the dylib via @rpath; point the copy's install name to match.
 install_name_tool -id @rpath/libvibeproxy_ffi.dylib "$APP/Contents/Frameworks/libvibeproxy_ffi.dylib"
 
+# App icon (committed; regenerate from AppIcon.svg with make-icon.sh when it changes).
+cp "$HERE/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -31,6 +34,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>dev.vibeproxy.menubar</string>
   <key>CFBundleName</key><string>VibeProxy</string>
   <key>CFBundleDisplayName</key><string>VibeProxy</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>0.2.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSUIElement</key><true/>
