@@ -1,7 +1,7 @@
 ---
 title: "VibeProxy Usage Analytics"
 description: "A Usage Analytics view inside VibeProxy that parses Claude Code's local JSONL logs to show total + per-model tokens, cost estimates, over-time trends, per-project breakdown, and cache efficiency."
-status: pending
+status: complete
 priority: P2
 effort: "~1.5-2 weeks"
 tags: [vibeproxy, analytics, tauri, svelte, charts]
@@ -73,9 +73,9 @@ defaults are overridden by the project's own system).
 |---|-------|--------|-----------|
 | 1 | [Usage Log Parser & Aggregator](./phase-01-start.md) | ✅ Done | — |
 | 2 | [Cost Estimation](./phase-02-cost-estimation.md) | ✅ Done | 1 |
-| 3 | [Analytics UI (KPIs, per-model, per-project)](./phase-03-analytics-ui-kpis-per-model-per-project.md) | Pending | 1, 2 |
-| 4 | [Time-Series Charts and Filters](./phase-04-time-series-charts-and-filters.md) | Pending | 3 |
-| 5 | [Polish, Export, Accessibility](./phase-05-polish-export-accessibility.md) | Pending | 3, 4 |
+| 3 | [Analytics UI (KPIs, per-model, per-project)](./phase-03-analytics-ui-kpis-per-model-per-project.md) | ✅ Done | 1, 2 |
+| 4 | [Time-Series Charts and Filters](./phase-04-time-series-charts-and-filters.md) | ✅ Done | 3 |
+| 5 | [Polish, Export, Accessibility](./phase-05-polish-export-accessibility.md) | ✅ Done | 3, 4 |
 
 ## Design direction (from the ak:ui-ux-pro-max pass, adapted)
 
@@ -97,12 +97,15 @@ defaults are overridden by the project's own system).
 
 ## Success Criteria
 
-- [ ] Usage view shows correct total tokens + per-model split (cross-check against `ccusage` for the same window)
-- [ ] Per-model **cost** estimate from a bundled, versioned pricing table (with an "estimate" disclaimer)
-- [ ] Daily/weekly **trend** charts + a **per-project** breakdown + **cache** read/write/fresh split
-- [ ] Parses a large `~/.claude` (100s of sessions) in well under a second, deduped, without blocking the UI
-- [ ] Reuses the VibeProxy design system; charts are keyboard/screen-reader accessible with a table fallback; light + dark
-- [ ] Reads logs only — never sends usage data anywhere
+- [x] Usage view shows correct total tokens + per-model split — verified by an internal-consistency
+      E2E (`real_logs_aggregate_consistently`: every breakdown re-sums to the same totals).
+      **Not** cross-checked against `ccusage` — it isn't installed here; still open.
+- [x] Per-model **cost** estimate from a bundled, versioned pricing table (with an "estimate" disclaimer)
+- [x] Daily/weekly **trend** charts + a **per-project** breakdown + **cache** read/write/fresh split
+- [x] Parses a large `~/.claude` deduped, without blocking the UI — **294 ms cold / 2 ms cached**
+      (release, 9k messages, 2.77 B tokens), off the UI thread via `spawn_blocking`
+- [x] Reuses the VibeProxy design system; charts are keyboard/screen-reader accessible with a table fallback; light + dark
+- [x] Reads logs only — never sends usage data anywhere (CSV export writes only to an OS-save-dialog path)
 
 ## Risks
 
@@ -123,8 +126,11 @@ defaults are overridden by the project's own system).
 
 - **Time zone / "today"** — compute day buckets in local time (matches user expectation)? Confirm in Phase 4.
 - **Unknown model ids** — bundle rates for the current Claude family; unknown id → tokens shown, value "—". Confirm the id list from real logs in Phase 1/2.
-- **View placement** — dedicated resizable Usage window (recommended) vs a tab in the main window. Confirm in Phase 3.
-- **Subscription cost input** — where the user enters each account's monthly plan cost (Settings, or inline on the per-account card). Decide in Phase 3.
+- ~~**View placement**~~ — **resolved (Phase 3): dedicated resizable window** (900×700, min 640×480),
+  opened from the tray's "Usage Analytics…" item or the main window's "Usage" button. Accounts popover
+  unchanged.
+- ~~**Subscription cost input**~~ — **resolved (Phase 3): inline on each per-account bar row**, persisted
+  in `Settings.monthlyCostUsd` keyed by account label.
 - **Log-root robustness** — a profile's `config_dir` may be `~/.claude` (default) or a custom dir; scan `<dir>/projects/` for each. Confirm no profile shares a dir (dedupe by resolved path).
 
 <!-- slug: vibeproxy-usage-analytics -->

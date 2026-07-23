@@ -1,0 +1,58 @@
+# Tests + lint on every push/PR. Two jobs: Linux proves the cross-platform core + CLI (and the
+# FileStore credential backend that is only *wired* off macOS), macOS proves the full workspace
+# including the Tauri app and the frontend. The `--ignored` real-data E2E (real Keychain, real logs)
+# can't run in CI — they need a logged-in `claude` and live state — so CI runs the hermetic suite.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux-core-cli:
+    name: Linux · core + CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Only the platform-agnostic crates. The Tauri app is macOS-only and needs GUI system libs;
+      # building core + CLI here is what exercises the non-macOS `FileStore` default.
+      - name: Test
+        run: cargo test -p vibeproxy-core -p vibeproxy-cli
+      - name: Clippy
+        run: cargo clippy -p vibeproxy-core -p vibeproxy-cli --all-targets -- -D warnings
+
+  macos-full:
+    name: macOS · full workspace + frontend
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install JS deps
+        run: pnpm install
+      - name: Typecheck
+        run: pnpm check
+      - name: Frontend unit tests
+        run: pnpm test
+      # The Tauri app crate embeds the built frontend (frontendDist = ../build), so build it first.
+      - name: Build frontend
+        run: pnpm build
+      - name: Test (whole workspace)
+        run: cargo test --workspace
+      - name: Clippy (whole workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings

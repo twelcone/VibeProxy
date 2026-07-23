@@ -1,6 +1,6 @@
 [package]
 name = "vibeproxy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Switch between multiple Claude Code Pro/Max accounts, track usage, auto-switch on quota."
 authors = ["twelcone"]
 edition = "2021"
@@ -18,10 +18,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+vibeproxy-core = { path = "../crates/vibeproxy-core" }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"

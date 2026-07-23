@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Analytics UI (KPIs, per-model, per-project)"
-status: pending
+status: done
 priority: P1
 effort: "3-4d"
 dependencies: [1, 2]

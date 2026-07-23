@@ -46,6 +46,122 @@ Drives 5-hour / weekly usage bars and rings. **Not** a brand color; never reuse 
 | `--warn` | `#cf9422` | `#e3b457` | 70–89% |
 | `--crit` | `#ce4530` | `#e0654e` | ≥ 90% (also show a "Near limit" label) |
 
+### Categorical series palette (charts only)
+
+Chart series (per-model, per-account, per-project) need colors that are **neither** the accent (brand/
+active) **nor** the usage scale (quota severity) — reusing either would make a chart color read as
+state. Six hues, each ≥4.5:1 on `--panel` in its own theme, cycled if a chart has more than six series.
+
+| Token | Light | Dark |
+|-------|-------|------|
+| `--series-1` | `#2a716d` | `#5cb4ae` |
+| `--series-2` | `#4b5bb5` | `#8b97e0` |
+| `--series-3` | `#8a4a86` | `#c187bd` |
+| `--series-4` | `#5f6b28` | `#a8b95c` |
+| `--series-5` | `#b03a5b` | `#e0748f` |
+| `--series-6` | `#46647d` | `#86a6bf` |
+
+**Every series is directly labeled** — color is reinforcement, never the sole carrier of meaning
+(colorblind safety + the "state reads without color" principle). Access via `seriesColor(i)` in
+`src/lib/series-palette.ts`.
+
+### Token location
+
+All tokens live in `src/lib/styles/tokens.css`, imported once by the root `+layout.svelte` so every
+window (main popover, Usage Analytics) shares one source. Don't redeclare them per component.
+
+## Dashboard components (Usage Analytics)
+
+- **`KpiCard`** — uppercase label, large `tabular-nums` value, optional sublabel. Exact value in `title`
+  when the display value is abbreviated.
+- **`BarRow`** — labeled horizontal bar; proportional to the section max, but the number is always
+  printed so a row reads without the bar. Row dividers are applied by the parent panel, not the row.
+- **`UsageTable`** — sortable columns with `aria-sort`; numbers right-aligned and `tabular-nums`;
+  names truncate with the full value in `title`.
+- **Numbers:** compact in the UI (`1.2M`), exact on hover/in tooltips. Formatters in `src/lib/format.ts`.
+- **Money:** always labeled as *equivalent API value / estimate*, never "spent" — a Pro/Max plan is a
+  flat fee, so presenting token value as spend would be actively misleading. Unpriced models show "—",
+  never `$0`.
+
+## Charts
+
+Hand-rolled SVG (`src/lib/chart/svg.ts`) — no charting dependency. Daily buckets with ≤7 series and
+no zoom/brush is well inside what scale + path math covers; revisit only if interactions get heavier.
+
+- **Grid** uses `--hair`; axis ticks use `--ink-faint` at 10px with `tabular-nums`. Y ticks are
+  "nice" 1/2/5×10ⁿ steps so labels read as round numbers.
+- **Series color** comes from `--series-*`, **always paired with a dash pattern** (`seriesDash(i)`) so
+  lines stay separable in greyscale or with colorblindness. A legend shows swatch + dash together.
+- **Series cap: 6**, remainder folded into a labeled "Other (N)" series — the count is shown, never a
+  silent truncation.
+- **Single-series** line charts add a 18% area fill; multi-series stay stroke-only to avoid mud.
+- **Cache chart** is the one place the semantic scale appears in a chart: cache-read uses `--good`
+  because it *is* the good outcome, while write/fresh use neutral series hues — a low hit rate is not
+  an error state, so no warn/crit.
+- **Hover** snaps to a bucket via invisible hit bands (never interpolates between days). Tooltip is
+  HTML, positioned by percentage, `pointer-events: none`.
+- **Every chart has a "View as table" toggle** rendering `ChartTable` — an SVG shape is not readable
+  by a screen reader and exact values can't be pulled off a line. This is required, not optional.
+- **Legend entries are `<button>`s that mute their series** — keyboard-reachable for free, and the
+  muted state uses strikethrough *plus* dimming so it isn't carried by opacity alone. Muting never
+  recolors the remaining series (color/dash follow the series' original index).
+- `aria-label` on each chart is a **generated sentence describing the actual data** (range, series
+  count, peak and when) — not a static label. Hover tooltips are a mouse-only enhancement; the
+  keyboard/screen-reader path is the table fallback, by design.
+- Charts carry no essential motion, so `prefers-reduced-motion` needs no chart-specific handling
+  beyond the global guard in `tokens.css`.
+- **Known limitation:** SVG tick text is a fixed 10px and won't grow with macOS text-size settings.
+  The table fallback is the accessible route for anyone who needs larger type.
+
+### Encodings that real data forced
+
+Both of these were chosen on paper, shipped, then changed after looking at actual logs. Recorded so
+they don't get "simplified" back.
+
+- **Composition charts are normalized to 100%, not stacked by magnitude.** Cache reads run ~96% of
+  tokens, so an absolute stack collapsed cache-write and fresh-input into invisible slivers and read
+  as a plain total-tokens bar chart. Daily magnitude is the trend chart's job; the composition chart's
+  only job is the split.
+- **The trend chart needs a Share mode.** One model routinely accounts for ~95% of tokens, which pins
+  every other series flat to the axis — the chart is effectively single-series in absolute mode.
+  Share (percent of each bucket) is what makes the others readable.
+- **No flat reference lines.** A cache-hit-rate line sat at 100% across the whole chart: zero
+  information, and it was drawn in `--accent`, violating the accent rule above. Removed.
+- **A lone row draws no bar.** A bar at 100% of itself encodes nothing; `BarRow` takes `soloRow` to
+  suppress the track when it is the only row.
+
+## Surfaces and decorative colour
+
+Updated after comparing against a peer app: the original outline-only treatment read as a wireframe
+next to real content.
+
+- **Cards and panels are filled** (`--panel-2`) with a hairline border and a **12px** radius. Outline
+  on the raw background is reserved for nothing — an unfilled box looks unfinished.
+- **`--accent` stays sparing** — active account, primary action, selected toggle. It is never used
+  for decoration, chart series, or category badges.
+- **Decorative and categorical colour comes from `--series-*`**, which already exists and is tuned to
+  sit beside coral. KPI icon chips, plan-tier badges, and chart series all draw from it. This is how
+  the UI gets colourful without diluting what coral means.
+- **Icon chips**: 24px rounded square, `color-mix(… 16%, transparent)` of the tint behind a
+  `currentColor` Lucide glyph. Used on KPI cards and the app mark.
+- **Status dots** (7px) on account rows: `--good` active, `--warn`/`--crit` by quota, `--ink-faint`
+  when unknown. Always paired with a badge or number — never the sole signal.
+- **Chart series carry a vertical gradient fill**, 30% → 2% opacity. Applied to every series, not
+  just a solo one: a dominant series reads as volume while near-zero series stay invisible, so the
+  chart gains depth without turning to mud.
+- **Absent data says so** — "no usage data yet", not an empty bar with an em dash, which reads as
+  broken rather than empty.
+
+## Numbers
+
+- **Compact units are hand-rolled, not `Intl` compact notation.** Locale compact renders "2.8bn" and
+  "116.2m" under en-AU, and a lowercase "m" reads as milli as readily as million. Suffixes stay
+  uppercase `K`/`M`/`B` everywhere; only the digits are localized.
+- **Currency uses `currencyDisplay: "narrowSymbol"`** — otherwise en-AU renders "US$6,149.44", and the
+  country prefix is noise in a single-currency UI.
+- **Percentages never round to a value they haven't reached.** 99.93% renders as "99.9%", not "100%";
+  0.02% renders as "0.0%", not "0%".
+
 ## Typography
 
 - **UI face:** the macOS system stack — `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`.

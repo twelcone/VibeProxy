@@ -4,11 +4,12 @@
 //! to keep the undocumented-endpoint / ToS surface small. Before polling an inactive profile we
 //! "touch" it via `claude auth status` so the official client refreshes its (otherwise-expiring) token.
 
-use super::{client, model::ProfileUsage};
-use crate::{keychain, profile, tray};
+use crate::tray;
+use vibeproxy_core::profile;
+use vibeproxy_core::usage::{model::ProfileUsage, poll_profile};
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::Path,
     sync::Arc,
 };
 use tauri::{AppHandle, Emitter};
@@ -16,6 +17,12 @@ use tokio::sync::RwLock;
 
 /// Poll inactive profiles once every N ticks (active profile is every tick).
 const INACTIVE_EVERY: u64 = 5;
+
+/// Re-check who each profile is actually logged in as, every N ticks (~10 min at the default
+/// interval). Stored identity is a cache, not a fact: a user can log out and back in directly in
+/// Claude Code, and nothing notifies us. Stale identity silently defeats the duplicate-account
+/// guard, which in turn makes auto-switch fail over to the account it just left.
+const IDENTITY_EVERY: u64 = 5;
 
 /// Shared, last-known usage per profile id.
 pub type UsageState = Arc<RwLock<HashMap<String, ProfileUsage>>>;
@@ -31,14 +38,18 @@ pub fn spawn(app: AppHandle, state: UsageState) {
             let active_id = cfg.active_profile_id.clone();
             let known: HashSet<String> = state.read().await.keys().cloned().collect();
 
+            if tick.is_multiple_of(IDENTITY_EVERY) {
+                refresh_identities(&app, &cfg).await;
+            }
+
             for p in &cfg.profiles {
                 let is_active = Some(&p.id) == active_id.as_ref();
                 // Poll: the active profile every tick, never-seen profiles immediately, others lazily.
                 let never_polled = !known.contains(&p.id);
-                if !is_active && !never_polled && tick % INACTIVE_EVERY != 0 {
+                if !is_active && !never_polled && !tick.is_multiple_of(INACTIVE_EVERY) {
                     continue;
                 }
-                let usage = poll_one(&p.id, PathBuf::from(&p.config_dir), is_active).await;
+                let usage = poll_profile(&p.id, Path::new(&p.config_dir), is_active).await;
                 state.write().await.insert(p.id.clone(), usage);
             }
 
@@ -60,37 +71,26 @@ pub fn spawn(app: AppHandle, state: UsageState) {
     });
 }
 
-async fn poll_one(profile_id: &str, config_dir: PathBuf, is_active: bool) -> ProfileUsage {
-    // Keep inactive profiles' tokens fresh via the official client (ToS-safe refresh).
-    if !is_active {
-        let dir = config_dir.clone();
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            let _ = profile::account_meta::fetch(&dir);
-        })
-        .await;
-    }
-
-    // Read the token off the async executor (Keychain access may block on a GUI prompt once).
-    // A Keychain failure is transient (locked / not-yet-authorized) → Error, NOT NeedsReauth;
-    // only a 401 from the usage endpoint means the token is actually invalid.
-    let token = {
-        let dir = config_dir.clone();
-        match tauri::async_runtime::spawn_blocking(move || keychain::read_token(&dir)).await {
-            Ok(Ok(t)) => t,
-            Ok(Err(e)) => return ProfileUsage::error(profile_id, format!("keychain: {e}")),
-            Err(_) => return ProfileUsage::error(profile_id, "keychain read task failed".into()),
+/// Re-read each profile's account identity from the official client and persist any change.
+///
+/// This is the same `claude auth status` call the poller already makes to keep inactive tokens
+/// warm — previously the result was discarded. Emits `profiles-updated` only when something
+/// actually changed, so the UI is not re-rendered on every tick.
+async fn refresh_identities(app: &AppHandle, cfg: &profile::Config) {
+    let mut changed = false;
+    for p in &cfg.profiles {
+        let prof = p.clone();
+        // The diff + `claude auth status` read is core; the app owns only the persist + event.
+        let Ok(Some(updated)) =
+            tauri::async_runtime::spawn_blocking(move || profile::refresh_identity(&prof)).await
+        else {
+            continue; // unchanged, logged out, or `claude` errored — leave the cache alone
+        };
+        if profile::store::update_profile(updated).is_ok() {
+            changed = true;
         }
-    };
-
-    match client::fetch(token.expose()).await {
-        Ok(r) => ProfileUsage::ok(
-            profile_id,
-            r.five_hour.as_ref().and_then(|w| w.utilization),
-            r.five_hour.and_then(|w| w.resets_at),
-            r.seven_day.as_ref().and_then(|w| w.utilization),
-            r.seven_day.and_then(|w| w.resets_at),
-        ),
-        Err(client::FetchError::Unauthorized) => ProfileUsage::needs_reauth(profile_id),
-        Err(client::FetchError::Other(e)) => ProfileUsage::error(profile_id, e),
+    }
+    if changed {
+        let _ = app.emit("profiles-updated", ());
     }
 }

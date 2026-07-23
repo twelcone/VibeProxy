@@ -2,6 +2,10 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
+  import RowBar from "$lib/usage/RowBar.svelte";
+  import MiniBars from "$lib/usage/MiniBars.svelte";
+  import { modelName, tokens as fmtTokens, usd } from "$lib/format";
+  import Icon from "$lib/ui/Icon.svelte";
 
   type Profile = {
     id: string; label: string; email: string | null; configDir: string;
@@ -10,11 +14,13 @@
   type Usage = {
     profileId: string; fiveHourPct: number | null; fiveHourResetsAt: string | null;
     weeklyPct: number | null; weeklyResetsAt: string | null; status: string;
+    /// Non-fatal detail, set only when status is "error" — shown on hover, not in the row.
+    error: string | null;
   };
   type AddState = { configDir: string; label: string; message: string; error: boolean };
   type Settings = {
     autoSwitchEnabled: boolean; thresholdPct: number; pollIntervalSecs: number;
-    cooldownSecs: number; launchAtLogin: boolean;
+    cooldownSecs: number; launchAtLogin: boolean; hotSwapEnabled: boolean; onboarded: boolean;
   };
 
   let profiles = $state<Profile[]>([]);
@@ -26,12 +32,70 @@
   let importLabel = $state("");
   let banner = $state("");
 
+  type Tok = { input: number; output: number; cacheWrite: number; cacheRead: number };
+  type Analytics = {
+    totals: Tok;
+    perModel: { model: string; tokens: Tok; value: number | null }[];
+    perDay: { date: string; tokens: Tok; value: number | null }[];
+    totalValue: number;
+  };
+
   let notice = $state("");
   let settings = $state<Settings | null>(null);
   let activity = $state<string[]>([]);
   let copied = $state(false);
-  const INTEGRATION_SNIPPET =
-    `_vp="$(cat ~/.vibeproxy/active-path 2>/dev/null)"; [ -n "$_vp" ] && export CLAUDE_CONFIG_DIR="$_vp" || unset CLAUDE_CONFIG_DIR`;
+  let shellInstalled = $state<boolean | null>(null); // null = not yet checked
+  let installMsg = $state("");
+
+  /** The popover is usage-first; configuration lives behind the toolbar's Settings tab. */
+  let view = $state<"home" | "settings" | "onboarding">("home");
+
+  // The window is a fixed-height OS rectangle; the shell fills it and `main` scrolls internally.
+  // Dynamic fit-to-content was tried and repeatedly mis-measured on first render, collapsing the
+  // panel to its header — a fixed height cannot fail that way, which is what every menubar app ships.
+
+  let stats = $state<Analytics | null>(null);
+  const TOP_MODELS = 3;
+
+
+  const sumTok = (t: Tok) => t.input + t.output + t.cacheWrite + t.cacheRead;
+
+  /** Last 7 local days, zero-filled so the mini chart keeps a stable 7-column shape. */
+  const spendDays = $derived.by(() => {
+    const byDate = new Map((stats?.perDay ?? []).map((d) => [d.date, d.value ?? 0]));
+    const out: { date: string; value: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const iso = d.toLocaleDateString("sv");
+      out.push({ date: iso, value: byDate.get(iso) ?? 0 });
+    }
+    return out;
+  });
+  const spendTotal = $derived(spendDays.reduce((n, d) => n + d.value, 0));
+  const topModels = $derived(
+    [...(stats?.perModel ?? [])]
+      .sort((a, b) => sumTok(b.tokens) - sumTok(a.tokens))
+      .slice(0, TOP_MODELS),
+  );
+  const topModelMax = $derived(Math.max(1, ...topModels.map((m) => sumTok(m.tokens))));
+
+  /** Popover stats are always the last 7 days — the Usage window is where ranges are explored. */
+  async function loadStats() {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 6);
+    try {
+      stats = await invoke<Analytics>("get_usage_analytics", {
+        range: { from: from.toLocaleDateString("sv"), to: to.toLocaleDateString("sv") },
+      });
+    } catch {
+      stats = null; // usage panel just stays hidden; account switching must keep working
+    }
+  }
+  // The canonical snippet comes from the backend (vibeproxy_core::shell) so display, copy, and what
+  // gets installed can never drift. Empty until the status call returns.
+  let integrationSnippet = $state("");
 
   function logActivity(msg: string) {
     const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -55,18 +119,49 @@
     try { settings = await invoke<Settings>("set_settings", { settings }); }
     catch (e) { banner = `${e}`; }
   }
+  async function checkShellIntegration() {
+    try {
+      const st = await invoke<{ installed: boolean; snippet: string }>("shell_integration_status");
+      shellInstalled = st.installed;
+      integrationSnippet = st.snippet;
+    } catch { shellInstalled = null; }
+  }
+  async function installShellIntegration() {
+    try {
+      const file = await invoke<string>("install_shell_integration");
+      shellInstalled = true;
+      installMsg = `Added to ${file}. Open a new terminal for it to take effect.`;
+    } catch (e) { installMsg = `Couldn't install: ${e}`; }
+  }
+  async function finishOnboarding() {
+    try { await invoke("complete_onboarding"); } catch { /* non-fatal */ }
+    if (settings) settings = { ...settings, onboarded: true };
+    view = "home";
+  }
+  async function openUsage() {
+    try { await invoke("open_usage_window"); } catch (e) { banner = `${e}`; }
+  }
   async function copySnippet() {
-    try { await navigator.clipboard.writeText(INTEGRATION_SNIPPET); copied = true; setTimeout(() => (copied = false), 1500); }
+    try { await navigator.clipboard.writeText(integrationSnippet); copied = true; setTimeout(() => (copied = false), 1500); }
     catch { /* clipboard unavailable */ }
   }
 
   onMount(async () => {
     await refresh();
+    loadStats();
+    await checkShellIntegration();
+    if (settings && !settings.onboarded) view = "onboarding";
     unlisteners.push(
       await listen<Usage[]>("usage-updated", (e) => {
         const next = { ...usage };
         for (const u of e.payload) next[u.profileId] = u;
         usage = next;
+      }),
+    );
+    unlisteners.push(
+      await listen("profiles-updated", async () => {
+        // An account was re-logged-in outside VibeProxy; stored identity has just been corrected.
+        await refresh();
       }),
     );
     unlisteners.push(
@@ -89,12 +184,32 @@
 
   const sev = (v: number) => (v >= 90 ? "crit" : v >= 70 ? "warn" : "good");
 
+  /**
+   * Profiles that resolve to the same Anthropic account. This happens when a user logs out and back
+   * in directly in Claude Code — the profile still exists but now points at a different account, and
+   * two of them can silently converge. Worth surfacing: a duplicate is not a fallback, so auto-switch
+   * has nowhere to go even though the list looks like it does.
+   */
+  const duplicateOrgs = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const p of profiles) if (p.orgId) counts.set(p.orgId, (counts.get(p.orgId) ?? 0) + 1);
+    return new Set([...counts].filter(([, n]) => n > 1).map(([org]) => org));
+  });
+  const isDuplicate = (p: Profile) => !!p.orgId && duplicateOrgs.has(p.orgId);
+
+  /** Compact because it sits in a narrow trailing column beside the bar, not on its own line. */
   function resetsIn(iso: string | null): string {
     if (!iso) return "";
     const ms = new Date(iso).getTime() - Date.now();
-    if (ms <= 0) return "resetting…";
+    if (ms <= 0) return "resetting";
     const m = Math.round(ms / 60000);
-    return m >= 60 ? `resets in ${Math.floor(m / 60)}h ${m % 60}m` : `resets in ${m}m`;
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+  }
+
+  /** Weekly windows reset days out, so a weekday name reads better than a countdown. */
+  function resetDay(iso: string | null): string {
+    if (!iso) return "";
+    return new Date(iso).toLocaleDateString(undefined, { weekday: "short" });
   }
 
   async function switchTo(id: string) {
@@ -167,55 +282,164 @@
   }
 </script>
 
+<div class="shell">
 <main>
-  <header><h1>VibeProxy</h1><span class="sub">Claude Code account switcher</span></header>
+  <header>
+    <span class="mark" aria-hidden="true"><Icon name="swap" size={17} /></span>
+    <span class="wordmark">
+      <h1>VibeProxy</h1>
+      <span class="sub">Claude Code accounts</span>
+    </span>
+  </header>
 
   {#if banner}<div class="banner" role="alert">{banner} <button class="x" onclick={() => (banner = "")}>×</button></div>{/if}
   {#if notice}<div class="notice" role="status">{notice} <button class="x" onclick={() => (notice = "")}>×</button></div>{/if}
 
+  {#if view === "onboarding"}
+  <section class="onboard">
+    <h2 class="welcome">Welcome</h2>
+    <p class="lead">Two quick things and VibeProxy is ready.</p>
+
+    <div class="step">
+      <div class="step-head">
+        <span class="step-badge" class:done={shellInstalled}>{shellInstalled ? "✓" : "1"}</span>
+        <b>Connect it to your terminal</b>
+      </div>
+      <p class="step-body">
+        A switch only reaches new terminals once one line is in your shell profile. Without it,
+        every <code>claude</code> keeps using the same account no matter what you pick here.
+      </p>
+      {#if shellInstalled}
+        <p class="step-ok"><span class="ok-dot"></span>Installed. Open a new terminal for it to take effect.</p>
+      {:else}
+        <button class="btn primary" onclick={installShellIntegration}>Set it up for me</button>
+        {#if installMsg}<p class="step-body" style="margin-top:6px">{installMsg}</p>{/if}
+      {/if}
+    </div>
+
+    <div class="step">
+      <div class="step-head">
+        <span class="step-badge" class:done={profiles.length > 0}>{profiles.length > 0 ? "✓" : "2"}</span>
+        <b>Add your accounts</b>
+      </div>
+      <p class="step-body">
+        {#if profiles.length > 0}
+          {profiles.length} account{profiles.length === 1 ? "" : "s"} connected. Add more any time from Settings.
+        {:else}
+          Add a Claude account so there's something to switch between — you can do this from Settings.
+        {/if}
+      </p>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" onclick={finishOnboarding}>Done</button>
+      <button class="btn ghost" onclick={finishOnboarding}>Skip for now</button>
+    </div>
+  </section>
+  {/if}
+
+  {#if view === "home" && shellInstalled === false}
+    <div class="warn-banner" role="status">
+      <div>
+        <b>Switching won't reach your terminals yet.</b>
+        <span>VibeProxy needs one line in your shell profile, or every terminal keeps using the default account.</span>
+      </div>
+      <button class="btn small" onclick={() => (view = "settings")}>Set up</button>
+    </div>
+  {/if}
+
+  {#if view === "home"}
   <section>
     <h2>Accounts</h2>
     {#if profiles.length === 0}
-      <p class="empty">No accounts yet — add one below.</p>
+      <p class="empty">No accounts yet — add one in Settings.</p>
     {/if}
     {#each profiles as p (p.id)}
       {@const u = usage[p.id]}
       <div class="card" class:active={p.id === activeId}>
         <div class="id">
           <div class="name">
+            <span class="dot" class:live={p.id === activeId}
+              class:warn={u?.fiveHourPct != null && u.fiveHourPct >= 70 && u.fiveHourPct < 90}
+              class:crit={u?.status === "needsReauth" || (u?.fiveHourPct != null && u.fiveHourPct >= 90)}
+              aria-hidden="true"></span>
             {p.label}
+            {#if p.id === activeId}<span class="chip on">active</span>{/if}
             {#if p.subscriptionType}<span class="tier">{p.subscriptionType}</span>{/if}
+            {#if isDuplicate(p)}<span class="chip warn" title="Another profile is signed in to this same account, so it can't act as a fallback">same account</span>{/if}
             {#if u?.status === "needsReauth"}<span class="chip crit">re-login</span>{/if}
             {#if u?.fiveHourPct != null && u.fiveHourPct >= 90}<span class="chip crit">near limit</span>{/if}
           </div>
-          <div class="email">{p.email ?? p.configDir}</div>
+          <div class="email" title={p.email ?? p.configDir}>{p.email ?? p.configDir}</div>
         </div>
+        <!-- Two actions max: three overflowed the 420px card. Active is shown as a badge above,
+             since it is state rather than something you can click. -->
         <div class="actions">
           {#if p.id === activeId}
-            <button class="btn ghost" disabled>✓ Active</button>
-            <button class="btn" onclick={relaunch} title="Open a terminal on this account">Relaunch</button>
+            <button class="btn icon" onclick={relaunch} title="Open a terminal on this account" aria-label="Open a terminal on this account"><Icon name="swap" size={14} /></button>
           {:else}
             <button class="btn" onclick={() => switchTo(p.id)}>Switch</button>
           {/if}
-          <button class="btn icon" title="Remove" onclick={() => del(p)}>Remove</button>
+          <button class="btn icon" title={`Remove ${p.label}`} aria-label={`Remove ${p.label}`} onclick={() => del(p)}>×</button>
         </div>
         <div class="usage">
+          {#if u?.fiveHourPct == null && u?.weeklyPct == null}
+            <!-- "no data" and "we failed to read it" are different facts and must not share a
+                 message: one is a new account, the other is a problem the user can act on. -->
+            {#if u?.status === "needsReauth"}
+              <span class="nodata">sign in again to read usage</span>
+            {:else if u?.status === "error"}
+              <span class="nodata" title={u?.error ?? ""}>usage unavailable — retrying</span>
+            {:else}
+              <span class="nodata">no usage data yet</span>
+            {/if}
+          {:else}
           <div class="metric">
-            <span class="k">5-hour</span>
+            <span class="k">5h</span>
             <span class="bar"><i class={u?.fiveHourPct != null ? `fill-${sev(u.fiveHourPct)}` : ""} style={`width:${u?.fiveHourPct ?? 0}%`}></i></span>
             <span class="v">{u?.fiveHourPct != null ? Math.round(u.fiveHourPct) + "%" : "—"}</span>
+            <span class="t">{resetsIn(u?.fiveHourResetsAt ?? null)}</span>
           </div>
           <div class="metric">
-            <span class="k">weekly</span>
+            <span class="k">wk</span>
             <span class="bar"><i class={u?.weeklyPct != null ? `fill-${sev(u.weeklyPct)}` : ""} style={`width:${u?.weeklyPct ?? 0}%`}></i></span>
             <span class="v">{u?.weeklyPct != null ? Math.round(u.weeklyPct) + "%" : "—"}</span>
+            <span class="t">{resetDay(u?.weeklyResetsAt ?? null)}</span>
           </div>
-          {#if u?.fiveHourResetsAt}<div class="reset">{resetsIn(u.fiveHourResetsAt)}</div>{/if}
+          {/if}
         </div>
       </div>
     {/each}
   </section>
 
+  {#if stats}
+    <section>
+      <div class="sec-head">
+        <h2>Spend · 7 days</h2>
+        <span class="sec-total">{usd(spendTotal)}</span>
+      </div>
+      <MiniBars days={spendDays} format={usd} />
+    </section>
+
+    {#if topModels.length}
+      <section>
+        <h2>Top models · 7 days</h2>
+        {#each topModels as m (m.model)}
+          <RowBar
+            label={modelName(m.model)}
+            value={sumTok(m.tokens)}
+            max={topModelMax}
+            secondaryText={fmtTokens(sumTok(m.tokens))}
+            valueText={usd(m.value)}
+            title={m.model}
+          />
+        {/each}
+      </section>
+    {/if}
+  {/if}
+  {/if}
+
+  {#if view === "settings"}
   <section>
     <h2>Add account</h2>
     {#if add}
@@ -259,6 +483,17 @@
           <span class="ctl"><input class="num" type="number" min="60" step="30" bind:value={settings.pollIntervalSecs} onchange={saveSettings} /><em>s</em></span>
         </label>
         <label class="set">
+          <span>
+            <b>Switch running sessions too</b>
+            <small>
+              Moves credentials into the session's own folder so an open terminal switches without
+              relaunching. VibeProxy will write to your Keychain, and that session's transcripts are
+              re-attributed by time rather than by folder.
+            </small>
+          </span>
+          <input type="checkbox" bind:checked={settings.hotSwapEnabled} onchange={saveSettings} />
+        </label>
+        <label class="set">
           <span><b>Launch at login</b></span>
           <input type="checkbox" bind:checked={settings.launchAtLogin} onchange={saveSettings} />
         </label>
@@ -268,8 +503,19 @@
 
   <section>
     <h2>Claude Code integration</h2>
-    <p class="hint2">Add this to your shell profile (e.g. <code>~/.zshrc</code>) so new terminals use the active account:</p>
-    <div class="snippet"><code>{INTEGRATION_SNIPPET}</code><button class="btn small" onclick={copySnippet}>{copied ? "Copied ✓" : "Copy"}</button></div>
+    {#if shellInstalled === true}
+      <p class="hint2"><span class="ok-dot"></span>Installed — new terminals use the active account.</p>
+    {:else}
+      <p class="hint2">Add this to your shell profile so new terminals use the active account:</p>
+    {/if}
+    <div class="snippet"><code>{integrationSnippet}</code><button class="btn small" onclick={copySnippet}>{copied ? "Copied ✓" : "Copy"}</button></div>
+    {#if shellInstalled !== true}
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary small" onclick={installShellIntegration}>Install it for me</button>
+        <span class="hint2" style="margin:0">appends the line to your shell profile</span>
+      </div>
+    {/if}
+    {#if installMsg}<p class="hint2" style="margin-top:6px">{installMsg}</p>{/if}
   </section>
 
   {#if activity.length}
@@ -280,21 +526,80 @@
       </ul>
     </section>
   {/if}
+  {/if}
 </main>
 
+<nav class="toolbar" class:hidden={view === "onboarding"}>
+  <button class:on={view === "home"} aria-pressed={view === "home"} onclick={() => (view = "home")}><Icon name="home" size={13} />Home</button>
+  <button onclick={openUsage}><Icon name="chart" size={13} />Analytics</button>
+  <button class:on={view === "settings"} aria-pressed={view === "settings"} onclick={() => (view = "settings")}><Icon name="settings" size={13} />Settings</button>
+  <button class="icon" title="Refresh" aria-label="Refresh" onclick={() => { refresh(); loadStats(); }}><Icon name="refresh" size={14} /></button>
+  <button class="icon danger" title="Quit VibeProxy" aria-label="Quit VibeProxy" onclick={() => invoke("quit_app")}><Icon name="power" size={14} /></button>
+</nav>
+</div>
+
 <style>
-  :root {
-    --panel: #fbfaf8; --panel-2: #f1eee9; --panel-3: #e9e5de; --ink: #26231f; --ink-soft: #6e675e;
-    --ink-faint: #837a6e; --hair: #e3ded5; --accent: #c4623f; --good: #3e9b5f; --warn: #cf9422; --crit: #ce4530;
-    --bar: #e6e1d8;
-    color: var(--ink); background: var(--panel);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  /* Color/type tokens live in src/lib/styles/tokens.css (shared with the Usage window). */
+  /* This window is an undecorated, transparent tray panel, so the rounded surface is drawn here
+     rather than by the OS title bar. */
+  /* `html:root` (0,1,1) outranks tokens.css's `:root` (0,1,0). A plain `html` selector loses to it,
+     which left an opaque square painted behind the shell's rounded corners. */
+  :global(html:root), :global(body) { background: transparent; }
+  /* The document itself must never scroll or rubber-band; only `main` scrolls, and it stops at its
+     own bounds rather than bouncing the whole panel. */
+  :global(html), :global(body) { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  /* The webview draws a persistent scrollbar where macOS would fade an overlay one; make it thin
+     and only visible while the pointer is over the panel. */
+  :global(::-webkit-scrollbar) { width: 7px; }
+  :global(::-webkit-scrollbar-track) { background: transparent; }
+  :global(::-webkit-scrollbar-thumb) {
+    background: transparent; border-radius: 4px; border: 2px solid transparent; background-clip: padding-box;
   }
-  :global(body) { margin: 0; }
-  main { padding: 14px 16px 22px; }
-  header { display: flex; align-items: baseline; gap: 8px; }
-  h1 { margin: 0; font-size: 1.15rem; }
-  .sub { color: var(--ink-soft); font-size: .8rem; }
+  .shell:hover :global(::-webkit-scrollbar-thumb) { background: var(--panel-3); background-clip: padding-box; }
+  .shell {
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 12px;
+  }
+  main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 16px; }
+
+  .sec-head { display: flex; align-items: baseline; gap: 8px; }
+  .sec-head h2 { flex: 1; }
+  .sec-total { font-size: .95rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+  /* Pinned so navigation stays reachable however long the account list gets. */
+  .toolbar {
+    flex: none; display: flex; align-items: center; gap: 2px;
+    padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--hair);
+  }
+  .toolbar button {
+    display: flex; align-items: center; gap: 5px;
+    font: inherit; font-size: .74rem; font-weight: 600; padding: 5px 9px; border: 0;
+    border-radius: 7px; background: none; color: var(--ink-soft); cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--panel-2); color: var(--ink); }
+  .toolbar button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .toolbar .icon { padding: 5px 7px; }
+  .toolbar .icon:first-of-type, .toolbar button:nth-last-child(2) { margin-left: auto; }
+  .toolbar .danger:hover { color: var(--crit); background: color-mix(in srgb, var(--crit) 12%, transparent); }
+  header { display: flex; align-items: center; gap: 10px; }
+  .mark {
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+  }
+  .wordmark { display: flex; flex-direction: column; line-height: 1.25; }
+  h1 { margin: 0; font-size: 1.05rem; letter-spacing: -.01em; }
+  .sub { color: var(--ink-faint); font-size: .72rem; }
+
+  /* Liveness at a glance, ahead of the numbers. Paired with the badge and the bar colour, so the
+     dot is never the only signal. */
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: var(--ink-faint);
+  }
+  .dot.live { background: var(--good); }
+  .dot.warn { background: var(--warn); }
+  .dot.crit { background: var(--crit); }
+  .nodata { font-size: .72rem; color: var(--ink-faint); }
   h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); margin: 18px 0 8px; }
   .empty { color: var(--ink-faint); font-size: .9rem; }
   .banner { background: color-mix(in srgb, var(--crit) 12%, transparent); color: var(--crit); padding: 8px 10px; border-radius: 8px; font-size: .85rem; margin-top: 8px; display: flex; }
@@ -302,23 +607,36 @@
   .notice { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); padding: 8px 10px; border-radius: 8px; font-size: .85rem; margin-top: 8px; display: flex; }
   .notice .x { margin-left: auto; background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
 
-  .card { border: 1px solid var(--hair); border-radius: 10px; padding: 11px 12px; margin-bottom: 9px;
+  /* Filled surface rather than outline-only — an unfilled box reads as a placeholder. */
+  .card { background: var(--panel-2); border: 1px solid var(--hair); border-radius: 10px; padding: 11px 12px; margin-bottom: 8px;
     display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; }
   .card.active { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
   .name { font-weight: 600; font-size: .95rem; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-  .tier { font-size: .62rem; text-transform: uppercase; letter-spacing: .03em; background: var(--panel-3); color: var(--ink-soft); padding: 1px 5px; border-radius: 4px; font-weight: 700; }
+  /* Plan tier gets its own hue from the series palette — coral stays reserved for active state. */
+  .tier { font-size: .62rem; text-transform: uppercase; letter-spacing: .03em;
+    background: color-mix(in srgb, var(--series-3) 18%, transparent); color: var(--series-3);
+    padding: 1px 5px; border-radius: 5px; font-weight: 700; }
   .chip { font-size: .62rem; text-transform: uppercase; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
   .chip.crit { color: var(--crit); background: color-mix(in srgb, var(--crit) 14%, transparent); }
-  .email { font-size: .78rem; color: var(--ink-soft); margin-top: 2px; word-break: break-all; }
+  .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .chip.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .actions { flex-wrap: nowrap; }
+  /* Grid items default to min-width:auto and refuse to shrink below their content, which pushed
+     the card wider than the window and produced a horizontal body scrollbar. */
+  .card > .id { min-width: 0; }
+  .btn.icon { padding: 4px 9px; font-size: .95rem; line-height: 1; }
+  /* Long addresses truncate rather than break-all, which used to split them mid-word across
+     three lines. Full value stays available via the title attribute. */
+  .email { font-size: .72rem; color: var(--ink-soft); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .actions { display: flex; gap: 6px; align-items: start; }
-  .usage { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 4px 16px; align-items: center; }
-  .metric { display: flex; align-items: center; gap: 7px; }
-  .metric .k { font-size: .68rem; color: var(--ink-faint); width: 42px; }
-  .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--bar); overflow: hidden; }
-  .bar > i { display: block; height: 100%; border-radius: 3px; transition: width .3s ease-out; }
+  .usage { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; }
+  .metric { display: grid; grid-template-columns: 22px 1fr 34px 46px; align-items: center; gap: 8px; }
+  .metric .k { font-size: .68rem; color: var(--ink-faint); }
+  .metric .t { font-size: .68rem; color: var(--ink-faint); text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { height: 7px; border-radius: 999px; background: var(--bar); overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; transition: width .3s ease-out; }
   .fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
-  .metric .v { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--ink-soft); width: 34px; text-align: right; }
-  .reset { grid-column: 1 / -1; font-size: .7rem; color: var(--ink-faint); }
+  .metric .v { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; text-align: right; }
 
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   input { flex: 1; min-width: 120px; font: inherit; font-size: .85rem; padding: 6px 9px; border: 1px solid var(--hair); border-radius: 7px; background: var(--panel); color: var(--ink); }
@@ -348,6 +666,25 @@
   .set .num { width: 64px; font: inherit; padding: 4px 6px; border: 1px solid var(--hair); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .set em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: .8rem; min-width: 34px; text-align: right; }
   .hint2 { font-size: .8rem; color: var(--ink-soft); margin: 0 0 6px; }
+  .ok-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--good); margin-right:6px; }
+  .warn-banner { display:flex; align-items:center; gap:12px; margin:10px 0 4px; padding:10px 12px;
+    border-radius:10px; background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+  .warn-banner div { display:flex; flex-direction:column; gap:2px; }
+  .warn-banner b { font-size:.82rem; }
+  .warn-banner span { font-size:.75rem; color:var(--ink-soft); }
+  .warn-banner .btn { margin-left:auto; white-space:nowrap; }
+  .onboard { padding-top: 4px; }
+  .welcome { font-size: 1.05rem; text-transform: none; letter-spacing: 0; color: var(--ink); margin: 8px 0 2px; }
+  .lead { font-size: .85rem; color: var(--ink-soft); margin: 0 0 14px; }
+  .step { border: 1px solid var(--hair); background: var(--panel-2); border-radius: 10px; padding: 12px 13px; margin-bottom: 10px; }
+  .step-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .step-badge { display:grid; place-items:center; width:20px; height:20px; border-radius:50%;
+    background: var(--panel-3); color: var(--ink-soft); font-size:.72rem; font-weight:700; flex:none; }
+  .step-badge.done { background: color-mix(in srgb, var(--good) 20%, transparent); color: var(--good); }
+  .step-body { font-size:.78rem; color: var(--ink-soft); margin:0 0 8px; line-height:1.5; }
+  .step-ok { font-size:.78rem; color: var(--ink-soft); margin:0; }
+  .toolbar.hidden { display: none; }
   code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .85em; background: var(--panel-3); padding: 1px 4px; border-radius: 4px; }
   .snippet { display: flex; align-items: center; gap: 8px; background: var(--panel-3); border-radius: 8px; padding: 8px 10px; }
   .snippet code { font-size: .72rem; color: var(--ink-soft); overflow-x: auto; white-space: nowrap; flex: 1; background: none; padding: 0; }
@@ -356,11 +693,4 @@
   .activity li { padding: 7px 12px; border-bottom: 1px solid var(--hair); font-size: .8rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
   .activity li:last-child { border-bottom: 0; }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --panel: #232120; --panel-2: #2c2a27; --panel-3: #35322e; --ink: #f1ede6; --ink-soft: #a79e92;
-      --ink-faint: #928a7e; --hair: #35312c; --accent: #e0805c; --good: #58b776; --warn: #e3b457; --crit: #e0654e; --bar: #3a352f;
-    }
-  }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>

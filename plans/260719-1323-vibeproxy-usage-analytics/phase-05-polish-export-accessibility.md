@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Polish, Export, Accessibility"
-status: pending
+status: done
 priority: P2
 effort: "2-3d"
 dependencies: [3, 4]
