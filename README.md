@@ -36,8 +36,23 @@ per account (read-only).
 
 ## Install
 
-VibeProxy is distributed **unsigned** (no Apple Developer Program), so macOS Gatekeeper needs a
-one-time approval.
+### Homebrew (recommended)
+
+```sh
+brew install --cask twelcone/vibeproxy/vibeproxy      # native menubar app (Apple Silicon)
+brew install twelcone/vibeproxy/vibeproxy-cli         # headless CLI (macOS + Linux/WSL)
+```
+
+The app is **unsigned** (no Apple Developer Program), so clear the quarantine flag once after
+installing, then open it from Applications:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/VibeProxy.app"
+```
+
+### Manual (.dmg)
+
+VibeProxy is distributed **unsigned**, so macOS Gatekeeper needs a one-time approval.
 
 1. Download `VibeProxy_x.y.z_aarch64.dmg` from [Releases](../../releases) and drag the app to Applications.
 2. **First launch (macOS 15+):** double-click → macOS blocks it → open **System Settings → Privacy &
