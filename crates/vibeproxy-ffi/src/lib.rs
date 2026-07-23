@@ -151,6 +151,24 @@ pub fn remove_profile(id: String) -> Result<(), FfiError> {
     Ok(())
 }
 
+/// Open a Terminal running `claude` on the active account, so a just-switched account takes effect
+/// immediately instead of waiting for the user to open a new terminal themselves.
+#[uniffi::export]
+pub fn relaunch_claude() -> Result<(), FfiError> {
+    use vibeproxy_core::platform::TerminalLauncher;
+    let cfg = store::load();
+    let dir = cfg
+        .active_profile_id
+        .and_then(|id| cfg.profiles.into_iter().find(|p| p.id == id))
+        .map(|p| p.config_dir);
+    match dir {
+        Some(d) => vibeproxy_core::platform::launcher()
+            .launch_claude(Path::new(&d))
+            .map_err(FfiError::Message),
+        None => Err(FfiError::Message("no active account".into())),
+    }
+}
+
 /// The shell integration line, so the Swift app can show/copy it like the Tauri app does.
 #[uniffi::export]
 pub fn shell_snippet() -> String {

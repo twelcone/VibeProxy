@@ -75,15 +75,10 @@ struct PanelView: View {
 
     private var accounts: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("ACCOUNTS").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
-                if state.profiles.count > 1 {
-                    Text("click to switch").font(.caption2).foregroundStyle(.tertiary)
-                }
-            }
+            Text("SWITCH ACCOUNT")
+                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             if state.profiles.isEmpty {
-                Text("No accounts yet.").font(.caption).foregroundStyle(.secondary)
+                Text("No accounts yet — add one below.").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(state.profiles) { p in
                 AccountRowView(
@@ -93,6 +88,16 @@ struct PanelView: View {
                     switchAction: { state.switchTo(p) },
                     removeAction: { state.removeAccount(p) }
                 )
+            }
+            if state.activeProfile != nil {
+                Button(action: { state.openClaude() }) {
+                    Label("Open Claude on \(state.activeProfile?.label ?? "active")", systemImage: "terminal")
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .help("Open a terminal running Claude on the active account, so the switch takes effect now")
+                .padding(.top, 2)
             }
             addControl
         }
@@ -188,10 +193,10 @@ struct AccountRowView: View {
     var body: some View {
         Button(action: switchAction) {
             HStack(spacing: 8) {
-                Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isActive ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(profile.label)
+                    Text(profile.label).fontWeight(isActive ? .semibold : .regular)
                     if let email = profile.email {
                         Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -205,7 +210,17 @@ struct AccountRowView: View {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         .font(.caption)
                 }
+                // The affordance: active reads as "Active", the rest as a tappable "Switch".
+                if isActive {
+                    Text("Active").font(.caption2.weight(.semibold)).foregroundStyle(.green)
+                } else {
+                    Text("Switch").font(.caption2.weight(.semibold)).foregroundStyle(.tint)
+                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                }
             }
+            .padding(.vertical, 5).padding(.horizontal, 8)
+            .background(isActive ? AnyShapeStyle(.green.opacity(0.10)) : AnyShapeStyle(.quaternary.opacity(0.4)),
+                        in: RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

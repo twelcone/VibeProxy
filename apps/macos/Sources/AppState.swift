@@ -161,6 +161,14 @@ final class AppState: ObservableObject {
         resetAdd(nil)
     }
 
+    /// Open Claude on the active account so the switch takes effect immediately.
+    func openClaude() {
+        Task.detached(priority: .userInitiated) {
+            do { try Core.openClaude() }
+            catch { await MainActor.run { self.error = String(describing: error) } }
+        }
+    }
+
     func removeAccount(_ profile: Profile) {
         Task.detached(priority: .userInitiated) {
             do {

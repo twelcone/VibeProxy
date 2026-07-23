@@ -44,6 +44,9 @@ enum Core {
     /// Remove an account from VibeProxy (its Claude login is left untouched).
     static func remove(_ id: String) throws { try removeProfile(id: id) }
 
+    /// Open a Terminal running `claude` on the active account, so a switch takes effect now.
+    static func openClaude() throws { try relaunchClaude() }
+
     /// `range` is "FROM..TO" (either side may be empty), or nil for all time.
     static func usage(range: String?) throws -> Analytics {
         try decode(Analytics.self, from: usageJson(range: range))
