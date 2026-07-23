@@ -47,33 +47,78 @@ final class AppState: ObservableObject {
     @Published var range: RangePreset = .thirtyDays
     @Published var loading = false
     @Published var error: String?
+    @Published var shellInstalled = true  // assume yes until checked, so we don't flash the hint
     @Published var coreVersion: String = Core.version
+
+    private var pollTask: Task<Void, Never>?
 
     var activeProfile: Profile? { profiles.first { $0.id == activeId } }
     var activeUsage: ProfileUsage? { activeId.flatMap { usage[$0] } }
 
     init() {
-        // Adopt ~/.claude as "Main" on first run, then load live quota so the menu bar shows a real
-        // percentage before the popover is ever opened.
+        // Clean up any abandoned add, adopt ~/.claude as "Main" on first run, then load live quota so
+        // the menu bar shows a real percentage before the popover is ever opened.
+        Core.sweepOrphans()
         try? Core.bootstrap()
+        shellInstalled = Core.isShellInstalled()
         refresh()
+        startPolling()
+    }
+
+    /// Keep the menu-bar quota fresh without the user opening the popover. Quota-only (light); the
+    /// heavier analytics scan stays on-demand.
+    private func startPolling() {
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 120_000_000_000)  // 2 minutes
+                await MainActor.run { self?.refreshUsage() }
+            }
+        }
+    }
+
+    /// Install the shell integration so switches reach the user's own new terminals.
+    func setUpShell() {
+        Task.detached(priority: .userInitiated) {
+            let ok = (try? Core.setUpShell()) != nil
+            await MainActor.run { if ok { self.shellInstalled = true } }
+        }
     }
 
     /// Poll live quota separately from the heavier analytics scan — it drives the menu bar and should
     /// stay responsive. Reused by refresh() and by a periodic tick.
-    func refreshUsage() {
+    /// Minimum gap between usage polls. The endpoint rate-limits (429) and the plan calls for
+    /// conservative polling, so opening the popover repeatedly reuses the cached reading rather than
+    /// re-hitting the endpoint each time. The manual Refresh button and the 2-minute timer force it.
+    private var lastUsagePoll: Date = .distantPast
+    private static let minPollGap: TimeInterval = 60
+
+    func refreshUsage(force: Bool = false) {
+        if !force && Date().timeIntervalSince(lastUsagePoll) < Self.minPollGap { return }
+        lastUsagePoll = Date()
         Task.detached(priority: .userInitiated) {
-            let usage = (try? Core.usageAll()) ?? []
-            let byId = Dictionary(uniqueKeysWithValues: usage.map { ($0.profileId, $0) })
-            await MainActor.run { self.usage = byId }
+            let fresh = (try? Core.usageAll()) ?? []
+            await MainActor.run {
+                // Rebuild from the fresh poll (so a removed account drops out), but on a *transient*
+                // error keep the last good reading rather than blanking the % — the endpoint rate-
+                // limits rapid polls, and a momentary blip shouldn't erase a known-good value.
+                var next: [String: ProfileUsage] = [:]
+                for u in fresh {
+                    if u.status == .error, let prev = self.usage[u.profileId], prev.status == .ok {
+                        next[u.profileId] = prev
+                    } else {
+                        next[u.profileId] = u
+                    }
+                }
+                self.usage = next
+            }
         }
     }
 
-    func refresh() {
+    func refresh(force: Bool = false) {
         loading = true
         error = nil
         let range = self.range
-        refreshUsage()
+        refreshUsage(force: force)
         Task.detached(priority: .userInitiated) {
             do {
                 let profiles = try Core.profiles()
@@ -104,7 +149,7 @@ final class AppState: ObservableObject {
         Task.detached(priority: .userInitiated) {
             do {
                 try Core.activate(profile.id)
-                await MainActor.run { self.refresh() }
+                await MainActor.run { self.refresh(force: true) }
             } catch {
                 await MainActor.run { self.error = String(describing: error) }
             }

@@ -47,6 +47,15 @@ enum Core {
     /// Open a Terminal running `claude` on the active account, so a switch takes effect now.
     static func openClaude() throws { try relaunchClaude() }
 
+    /// Clean up dirs left by an add that was abandoned mid-login.
+    static func sweepOrphans() { gcOrphans() }
+
+    /// Whether switches reach the user's own new terminals (shell integration installed).
+    static func isShellInstalled() -> Bool { shellInstalled() }
+
+    /// Install the shell integration; returns the file written.
+    static func setUpShell() throws -> String { try installShell() }
+
     /// `range` is "FROM..TO" (either side may be empty), or nil for all time.
     static func usage(range: String?) throws -> Analytics {
         try decode(Analytics.self, from: usageJson(range: range))

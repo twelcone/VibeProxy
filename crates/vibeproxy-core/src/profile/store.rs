@@ -102,12 +102,52 @@ impl Default for Config {
 }
 
 /// Load config, returning defaults if the file is missing or unreadable.
-/// Tolerant by design — a corrupt file should not brick the menubar.
+/// Tolerant by design — a corrupt file should never brick the menubar or lose accounts.
 pub fn load() -> Config {
-    match fs::read_to_string(paths::config_path()) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => Config::default(),
+    let Ok(s) = fs::read_to_string(paths::config_path()) else {
+        return Config::default();
+    };
+    match serde_json::from_str::<Config>(&s) {
+        Ok(cfg) => cfg,
+        // A whole-config parse failure must NOT discard every account (silent data loss). Keep the
+        // profiles that still deserialize, drop only the corrupt ones.
+        Err(_) => salvage(&s),
     }
+}
+
+/// The config failed to parse as a whole (e.g. one malformed profile entry). Salvage what we can:
+/// back up the raw file, then rebuild from the readable pieces — every profile that still
+/// deserializes, plus the active id and settings when present. Only genuinely corrupt entries are
+/// dropped, instead of the previous behavior where one bad field reset the entire config to empty.
+fn salvage(raw: &str) -> Config {
+    let path = paths::config_path();
+    let _ = fs::copy(&path, path.with_extension("json.corrupt.bak"));
+
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return Config::default(); // not even JSON — nothing to salvage
+    };
+    let mut cfg = Config::default();
+    if let Some(id) = v.get("activeProfileId").and_then(|x| x.as_str()) {
+        cfg.active_profile_id = Some(id.to_string());
+    }
+    if let Some(settings) = v.get("settings").cloned() {
+        if let Ok(s) = serde_json::from_value(settings) {
+            cfg.settings = s;
+        }
+    }
+    if let Some(arr) = v.get("profiles").and_then(|x| x.as_array()) {
+        cfg.profiles = arr
+            .iter()
+            .filter_map(|p| serde_json::from_value::<Profile>(p.clone()).ok())
+            .collect();
+    }
+    // Don't leave the active id pointing at a profile we couldn't salvage.
+    if let Some(id) = cfg.active_profile_id.clone() {
+        if !cfg.profiles.iter().any(|p| p.id == id) {
+            cfg.active_profile_id = None;
+        }
+    }
+    cfg
 }
 
 /// Ensure `~/.vibeproxy` (+ `profiles/`) exists and `config.json` is present.
@@ -270,6 +310,39 @@ mod io_tests {
             priority: 0,
             created_at: String::new(),
         }
+    }
+
+    #[test]
+    fn load_salvages_valid_profiles_when_one_is_corrupt() {
+        with_temp(|| {
+            // "bad" is missing the required configDir → the whole config would previously fail to
+            // parse and reset to empty, silently losing "good" too.
+            let raw = r#"{"schemaVersion":1,"activeProfileId":"good","profiles":[
+                {"id":"good","label":"Good","configDir":"/tmp/good"},
+                {"id":"bad","label":"Bad"}],"settings":{}}"#;
+            std::fs::write(paths::config_path(), raw).unwrap();
+
+            let c = load();
+            let ids: Vec<_> = c.profiles.iter().map(|p| p.id.as_str()).collect();
+            assert_eq!(ids, ["good"], "kept the valid profile, dropped only the corrupt one");
+            assert_eq!(c.active_profile_id.as_deref(), Some("good"));
+            assert!(
+                paths::config_path().with_extension("json.corrupt.bak").exists(),
+                "original preserved for recovery"
+            );
+        });
+    }
+
+    #[test]
+    fn load_clears_active_id_when_its_profile_is_unsalvageable() {
+        with_temp(|| {
+            let raw = r#"{"schemaVersion":1,"activeProfileId":"bad","profiles":[
+                {"id":"bad","label":"Bad"}],"settings":{}}"#;
+            std::fs::write(paths::config_path(), raw).unwrap();
+            let c = load();
+            assert!(c.profiles.is_empty());
+            assert!(c.active_profile_id.is_none(), "cleared the dangling active id");
+        });
     }
 
     #[test]

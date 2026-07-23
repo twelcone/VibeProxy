@@ -169,6 +169,26 @@ pub fn relaunch_claude() -> Result<(), FfiError> {
     }
 }
 
+/// Delete `profiles/<id>` dirs not referenced by any registered profile — cleans up after an add
+/// that was abandoned by quitting mid-login. Called once at app launch.
+#[uniffi::export]
+pub fn gc_orphans() {
+    vibeproxy_core::onboarding::gc_orphans();
+}
+
+/// Whether the shell integration is installed. Without it, a switch reaches newly-opened terminals
+/// only via `relaunch_claude`; with it, the user's own new terminals pick up the active account too.
+#[uniffi::export]
+pub fn shell_installed() -> bool {
+    vibeproxy_core::shell::is_installed()
+}
+
+/// Install the shell integration into the user's shell profile. Returns the file it wrote to.
+#[uniffi::export]
+pub fn install_shell() -> Result<String, FfiError> {
+    vibeproxy_core::shell::install().map_err(FfiError::Message)
+}
+
 /// The shell integration line, so the Swift app can show/copy it like the Tauri app does.
 #[uniffi::export]
 pub fn shell_snippet() -> String {

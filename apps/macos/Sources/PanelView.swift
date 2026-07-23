@@ -38,7 +38,7 @@ struct PanelView: View {
             if state.loading {
                 ProgressView().controlSize(.small)
             } else {
-                Button { state.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                Button { state.refresh(force: true) } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless)
                     .help("Refresh")
             }
@@ -97,6 +97,15 @@ struct PanelView: View {
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
                 .help("Open a terminal running Claude on the active account, so the switch takes effect now")
+                .padding(.top, 2)
+            }
+            if !state.shellInstalled {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "info.circle").font(.caption2).foregroundStyle(.secondary)
+                    Text("Set up shell integration so switches reach your own new terminals too.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Button("Set up") { state.setUpShell() }.font(.caption2).buttonStyle(.link)
+                }
                 .padding(.top, 2)
             }
             addControl
