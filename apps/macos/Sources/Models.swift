@@ -83,6 +83,26 @@ struct Analytics: Codable {
     )
 }
 
+/// Freshness/health of a profile's live usage reading.
+enum UsageStatus: String, Codable {
+    case ok
+    case needsReauth
+    case error
+}
+
+/// A profile's live quota reading — the 5-hour and weekly limits Claude Code Pro/Max enforce.
+/// This is the product's headline number, not historical token cost.
+struct ProfileUsage: Codable, Identifiable {
+    let profileId: String
+    let fiveHourPct: Double?
+    let fiveHourResetsAt: String?
+    let weeklyPct: Double?
+    let weeklyResetsAt: String?
+    let status: UsageStatus
+    let error: String?
+    var id: String { profileId }
+}
+
 struct Profile: Codable, Identifiable {
     let id: String
     let label: String

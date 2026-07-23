@@ -1,5 +1,6 @@
-// The menubar popover. A compact summary: active account, spend for the range, a token breakdown,
-// the account switcher, and an entry point to the full analytics window.
+// The menubar popover. Its job is the product's core: show how much of the active account's Pro/Max
+// quota is used (5-hour + weekly), and switch between accounts. Historical token/dollar analytics live
+// in the separate Analytics window, reachable from the footer.
 
 import SwiftUI
 
@@ -10,19 +11,16 @@ struct PanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            rangePicker
             Divider()
-            summary
-            if !state.profiles.isEmpty {
-                Divider()
-                accounts
-            }
+            quota
+            Divider()
+            accounts
             Divider()
             footer
         }
         .padding(16)
         .frame(width: 340)
-        .onAppear { if state.analytics.messageCount == 0 { state.refresh() } }
+        .onAppear { state.refresh() }
     }
 
     private var header: some View {
@@ -32,7 +30,7 @@ struct PanelView: View {
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
                 Text("VibeProxy").font(.headline)
-                Text(state.activeProfile?.label ?? "Default (~/.claude)")
+                Text(state.activeProfile?.label ?? "No account")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -40,75 +38,60 @@ struct PanelView: View {
             if state.loading {
                 ProgressView().controlSize(.small)
             } else {
-                Button {
-                    state.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh")
+                Button { state.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless)
+                    .help("Refresh")
             }
         }
     }
 
-    private var rangePicker: some View {
-        Picker("Range", selection: Binding(get: { state.range }, set: { state.setRange($0) })) {
-            ForEach(RangePreset.allCases) { p in Text(p.rawValue).tag(p) }
+    // MARK: Quota (the headline)
+
+    @ViewBuilder private var quota: some View {
+        switch state.activeUsage?.status {
+        case .needsReauth:
+            Label("Needs re-login", systemImage: "person.crop.circle.badge.exclamationmark")
+                .font(.callout).foregroundStyle(.orange)
+        case .error:
+            Label("Usage unavailable", systemImage: "wifi.exclamationmark")
+                .font(.callout).foregroundStyle(.secondary)
+        case .ok:
+            if let u = state.activeUsage {
+                VStack(spacing: 12) {
+                    QuotaRow(title: "5-hour limit", pct: u.fiveHourPct, resets: u.fiveHourResetsAt)
+                    QuotaRow(title: "Weekly limit", pct: u.weeklyPct, resets: u.weeklyResetsAt)
+                }
+            }
+        case .none:
+            HStack {
+                if state.loading { ProgressView().controlSize(.small) }
+                Text(state.error ?? "Loading usage…")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
     }
 
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(Fmt.usd(state.analytics.totalValue))
-                    .font(.system(size: 30, weight: .semibold, design: .rounded))
-                    .contentTransition(.numericText())
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("\(Fmt.count(state.analytics.messageCount)) msgs")
-                    Text("\(Fmt.tokens(state.analytics.totals.total)) tokens")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            if let e = state.error {
-                Label(e, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-            }
-            TokenBar(tokens: state.analytics.totals)
-        }
-    }
+    // MARK: Accounts
 
     private var accounts: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("ACCOUNTS")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-            ForEach(state.profiles) { p in
-                Button {
-                    state.switchTo(p)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: p.id == state.activeId ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(p.id == state.activeId ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(p.label)
-                            if let email = p.email {
-                                Text(email).font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        if let sub = p.subscriptionType {
-                            Text(sub).font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                    .contentShape(Rectangle())
+            HStack {
+                Text("ACCOUNTS").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if state.profiles.count > 1 {
+                    Text("click to switch").font(.caption2).foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.plain)
+            }
+            if state.profiles.isEmpty {
+                Text("No accounts yet.").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(state.profiles) { p in
+                AccountRowView(
+                    profile: p,
+                    isActive: p.id == state.activeId,
+                    usage: state.usage[p.id],
+                    switchAction: { state.switchTo(p) }
+                )
             }
         }
     }
@@ -130,39 +113,80 @@ struct PanelView: View {
     }
 }
 
-/// A single stacked bar of the four token classes — the panel's at-a-glance token mix.
-struct TokenBar: View {
-    let tokens: Tokens
-
-    private var segments: [(String, UInt64, Color)] {
-        [
-            ("Input", tokens.input, .blue),
-            ("Output", tokens.output, .green),
-            ("Cache write", tokens.cacheWrite, .orange),
-            ("Cache read", tokens.cacheRead, .purple),
-        ]
-    }
+/// One quota limit: a big percentage, a colored progress bar, and when it resets.
+struct QuotaRow: View {
+    let title: String
+    let pct: Double?
+    let resets: String?
 
     var body: some View {
-        let total = max(tokens.total, 1)
-        VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { geo in
-                HStack(spacing: 1) {
-                    ForEach(segments, id: \.0) { seg in
-                        seg.2.frame(width: max(0, geo.size.width * CGFloat(seg.1) / CGFloat(total)))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.subheadline.weight(.medium))
+                Spacer()
+                Text(Fmt.pct(pct))
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
+                    .foregroundStyle(color)
+                    .contentTransition(.numericText())
+            }
+            ProgressView(value: min(max((pct ?? 0) / 100, 0), 1))
+                .tint(color)
+            let r = Fmt.resets(resets)
+            if !r.isEmpty {
+                Text(r).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Green under 50%, amber to 80, red past it — the "am I about to run out" signal.
+    private var color: Color {
+        switch pct ?? 0 {
+        case ..<50: return .green
+        case ..<80: return .yellow
+        default: return .red
+        }
+    }
+}
+
+/// A switchable account: active marker, label/email, and its live 5-hour quota.
+struct AccountRowView: View {
+    let profile: Profile
+    let isActive: Bool
+    let usage: ProfileUsage?
+    let switchAction: () -> Void
+
+    var body: some View {
+        Button(action: switchAction) {
+            HStack(spacing: 8) {
+                Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(profile.label)
+                    if let email = profile.email {
+                        Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-            }
-            .frame(height: 8)
-            HStack(spacing: 10) {
-                ForEach(segments, id: \.0) { seg in
-                    HStack(spacing: 4) {
-                        Circle().fill(seg.2).frame(width: 6, height: 6)
-                        Text(seg.0).font(.caption2).foregroundStyle(.secondary)
-                    }
+                Spacer()
+                if let pct = usage?.fiveHourPct {
+                    Text(Fmt.pct(pct))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(pctColor(pct))
+                } else if usage?.status == .needsReauth {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        .font(.caption)
                 }
             }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isActive)
+    }
+
+    private func pctColor(_ pct: Double) -> Color {
+        switch pct {
+        case ..<50: return .green
+        case ..<80: return .yellow
+        default: return .red
         }
     }
 }

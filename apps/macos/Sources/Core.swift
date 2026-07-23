@@ -14,6 +14,14 @@ enum Core {
 
     static func activeProfile() -> String? { activeProfileId() }
 
+    /// Adopt the default ~/.claude login as "Main" on first run, so there's always an account.
+    static func bootstrap() throws { try bootstrapDefaultProfile() }
+
+    /// Live 5-hour / weekly quota for every configured account.
+    static func usageAll() throws -> [ProfileUsage] {
+        try decode([ProfileUsage].self, from: usageAllJson())
+    }
+
     /// `range` is "FROM..TO" (either side may be empty), or nil for all time.
     static func usage(range: String?) throws -> Analytics {
         try decode(Analytics.self, from: usageJson(range: range))
@@ -66,6 +74,34 @@ enum Fmt {
     }
 
     static func count(_ n: UInt64) -> String { fullTokens(n) }
+
+    /// Quota percent as a whole number: "33%", or "—" when unavailable.
+    static func pct(_ v: Double?) -> String {
+        guard let v else { return "—" }
+        return "\(Int(v.rounded()))%"
+    }
+
+    /// A short "resets in 2h 14m" from an ISO-8601 timestamp, or "" if it can't be parsed / is past.
+    static func resets(_ iso: String?, now: Date = Date()) -> String {
+        guard let iso, let date = isoDate(iso) else { return "" }
+        let secs = Int(date.timeIntervalSince(now))
+        guard secs > 0 else { return "resets now" }
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        if h >= 24 { return "resets in \(h / 24)d \(h % 24)h" }
+        if h > 0 { return "resets in \(h)h \(m)m" }
+        return "resets in \(m)m"
+    }
+
+    private static func isoDate(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: s) ?? {
+            let g = ISO8601DateFormatter()
+            g.formatOptions = [.withInternetDateTime]
+            return g.date(from: s)
+        }()
+    }
 
     private static func trim(_ v: Double) -> String {
         let s = String(format: "%.1f", v)

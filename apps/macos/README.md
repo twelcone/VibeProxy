@@ -6,11 +6,17 @@ the Tauri app; all three sit on the same core.
 
 ## What it shows
 
-- **Menu bar:** a gauge icon + live API-equivalent spend for the selected range.
-- **Popover:** active account, range picker (7d / 30d / 90d / All), spend, message/token counts, a
-  stacked token-class bar, and one-click account switching.
-- **Analytics window:** stat cards, a daily-tokens trend chart (native Swift Charts), per-model and
-  per-account breakdowns, and a per-model table.
+The headline is **quota**, not cost — how much of your Claude Code Pro/Max limits you've used:
+
+- **Menu bar:** a gauge + the active account's live 5-hour quota % (e.g. `33%`), the glanceable
+  "am I about to run out" number.
+- **Popover:** the active account's 5-hour and weekly limits (percent + bar + reset countdown), and
+  the account switcher — every account with its own live 5-hour %, one click to switch.
+- **Analytics window:** the historical, secondary view — stat cards, a daily-tokens trend chart
+  (native Swift Charts), per-model/per-account breakdowns, and a per-model table. "API value" here is
+  API-equivalent cost, not your subscription price.
+
+On first run it adopts the default `~/.claude` login as "Main" so there's always an account to show.
 
 ## Build
 
@@ -40,5 +46,8 @@ open apps/macos/build/VibeProxy.app
 | `Sources/PanelView.swift` | the menubar popover |
 | `Sources/AnalyticsView.swift` | the analytics window (Swift Charts) |
 
-The FFI surface (six functions) lives in `crates/vibeproxy-ffi/src/lib.rs`. Rich types cross as JSON
-strings — the same shapes `vibeproxy … --json` emits — and are decoded here with Codable.
+The FFI surface lives in `crates/vibeproxy-ffi/src/lib.rs`: `coreVersion`, `bootstrapDefaultProfile`,
+`listProfilesJson`, `activeProfileId`, `usageAllJson` (live 5h/weekly quota per account),
+`usageJson(range:)` (historical analytics), `switchProfile(target:)`, `shellSnippet`. Rich types cross
+as JSON strings — the same shapes `vibeproxy … --json` emits — decoded here with Codable. The live
+quota poll is async (reqwest); the FFI blocks on a small runtime so the Swift call stays synchronous.

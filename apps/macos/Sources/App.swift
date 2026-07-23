@@ -11,10 +11,11 @@ struct VibeProxyApp: App {
         MenuBarExtra {
             PanelView().environmentObject(state)
         } label: {
-            // Icon + live spend, so the bar itself is glanceable. Two views (image + text) rather
-            // than a Label, so MenuBarExtra renders the value text and not just the icon.
+            // Gauge + the active account's 5-hour quota % — the product's headline number, glanceable
+            // in the bar itself. Two views (image + text) so MenuBarExtra renders the value, not just
+            // the icon. Falls back to a dash when the reading is unavailable.
             Image(systemName: "gauge.with.dots.needle.67percent")
-            Text(Fmt.usd(state.analytics.totalValue))
+            Text(Fmt.pct(state.activeUsage?.fiveHourPct))
         }
         .menuBarExtraStyle(.window)
 

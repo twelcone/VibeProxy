@@ -5,7 +5,9 @@
 //! them with Codable using the exact shapes the CLI's `--json` already emits — no need to mirror every
 //! core struct as a uniffi Record. Actions return `Result`, which becomes a throwing Swift function.
 
+use std::path::Path;
 use vibeproxy_core::profile::store;
+use vibeproxy_core::usage::poll_profile;
 use vibeproxy_core::usage_analytics::{self, Range};
 
 uniffi::setup_scaffolding!();
@@ -64,6 +66,44 @@ pub fn switch_profile(target: String) -> Result<(), FfiError> {
     vibeproxy_core::switch::activate_profile(&id).map_err(err)
 }
 
+/// First run: if no profiles exist yet, adopt the default `~/.claude` login as "Main" and make it
+/// active — the same bootstrap the Tauri app does, so there is always an account to show and switch.
+/// Best-effort: a "not logged in / claude unavailable" error is returned for the app to surface, not
+/// a failure to retry.
+#[uniffi::export]
+pub fn bootstrap_default_profile() -> Result<(), FfiError> {
+    if !store::load().profiles.is_empty() {
+        return Ok(());
+    }
+    vibeproxy_core::profile::adopt("Main".to_string(), "~/.claude")
+        .map(|_| ())
+        .map_err(FfiError::Message)
+}
+
+/// Live usage (5-hour and weekly quota %) for every configured account, as a JSON array of the
+/// `ProfileUsage` shape. This — not historical token cost — is the number the menu bar shows. Polls
+/// each account's usage endpoint; blocks on a small runtime so the Swift call is synchronous.
+#[uniffi::export]
+pub fn usage_all_json() -> Result<String, FfiError> {
+    let cfg = store::load();
+    let active = cfg.active_profile_id.clone();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .map_err(err)?;
+    let usages = rt.block_on(async {
+        // Sequential is fine at this account count and keeps the endpoint's rate limits happy.
+        let mut out = Vec::with_capacity(cfg.profiles.len());
+        for p in &cfg.profiles {
+            let is_active = Some(&p.id) == active.as_ref();
+            out.push(poll_profile(&p.id, Path::new(&p.config_dir), is_active).await);
+        }
+        out
+    });
+    serde_json::to_string(&usages).map_err(err)
+}
+
 /// The shell integration line, so the Swift app can show/copy it like the Tauri app does.
 #[uniffi::export]
 pub fn shell_snippet() -> String {
@@ -112,6 +152,8 @@ mod tests {
 
         // list on empty → "[]"; usage → valid Analytics JSON; unknown switch → Err.
         assert_eq!(list_profiles_json().unwrap(), "[]");
+        // usage_all with no profiles is a network-free empty array (no account to poll).
+        assert_eq!(usage_all_json().unwrap(), "[]");
         assert!(active_profile_id().is_none());
         let usage = usage_json(None).unwrap();
         assert!(serde_json::from_str::<serde_json::Value>(&usage).unwrap()["totals"].is_object());

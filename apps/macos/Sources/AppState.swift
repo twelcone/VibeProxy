@@ -42,6 +42,7 @@ enum RangePreset: String, CaseIterable, Identifiable {
 final class AppState: ObservableObject {
     @Published var profiles: [Profile] = []
     @Published var activeId: String?
+    @Published var usage: [String: ProfileUsage] = [:]  // by profileId
     @Published var analytics: Analytics = .empty
     @Published var range: RangePreset = .thirtyDays
     @Published var loading = false
@@ -49,16 +50,30 @@ final class AppState: ObservableObject {
     @Published var coreVersion: String = Core.version
 
     var activeProfile: Profile? { profiles.first { $0.id == activeId } }
+    var activeUsage: ProfileUsage? { activeId.flatMap { usage[$0] } }
 
     init() {
-        // Load once at launch so the menu-bar value is live before the popover is ever opened.
+        // Adopt ~/.claude as "Main" on first run, then load live quota so the menu bar shows a real
+        // percentage before the popover is ever opened.
+        try? Core.bootstrap()
         refresh()
+    }
+
+    /// Poll live quota separately from the heavier analytics scan — it drives the menu bar and should
+    /// stay responsive. Reused by refresh() and by a periodic tick.
+    func refreshUsage() {
+        Task.detached(priority: .userInitiated) {
+            let usage = (try? Core.usageAll()) ?? []
+            let byId = Dictionary(uniqueKeysWithValues: usage.map { ($0.profileId, $0) })
+            await MainActor.run { self.usage = byId }
+        }
     }
 
     func refresh() {
         loading = true
         error = nil
         let range = self.range
+        refreshUsage()
         Task.detached(priority: .userInitiated) {
             do {
                 let profiles = try Core.profiles()
